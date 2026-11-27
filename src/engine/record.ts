@@ -19,6 +19,13 @@ export function createRecord(root: string, id: string, options: Parameters<typeo
   mkdirSync(join(path, 'tool-logs'), { recursive: true, mode: 0o700 });
   return { directory: path, clean: redactor(options) };
 }
+export function existingRecord(root: string, id: string): RecordStore {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(id)) throw new Error('Invalid run id.');
+  let path = resolve(root); noLink(path);
+  for (const part of ['.tuig', 'runs', id]) { path = join(path, part); noLink(path); if (!existsSync(path)) throw new Error('Run does not exist.'); }
+  for (const name of ['events.jsonl', 'summary.json', 'diff.patch', 'tool-logs']) noLink(join(path, name));
+  return { directory: path, clean: redactor() };
+}
 export function readRun(store: RecordStore): { events: RunEvent[]; summary: unknown; diff: string; incompleteTail: boolean } {
   const path = join(store.directory, 'events.jsonl'); noLink(path);
   const content = existsSync(path) ? readFileSync(path, 'utf8') : '';
@@ -50,6 +57,11 @@ export function writeArtifact(store: RecordStore, name: string, content: string)
   if (!/^(diff\.patch|tool-logs\/[A-Za-z0-9_-]+\.log)$/.test(name)) throw new Error('Invalid artifact path.');
   const file = join(store.directory, name); noLink(join(store.directory, 'tool-logs')); noLink(file);
   writeFileSync(file, store.clean(content), { mode: 0o600 }); return name;
+}
+export function readArtifact(store: RecordStore, name: string): string {
+  if (!/^(diff\.patch|tool-logs\/[A-Za-z0-9_-]+\.log)$/.test(name)) throw new Error('Invalid artifact path.');
+  noLink(join(store.directory, 'tool-logs')); noLink(join(store.directory, name));
+  return readFileSync(join(store.directory, name), 'utf8');
 }
 export function writeSummary(store: RecordStore, data: Record<string, unknown>): void {
   const value = redactValue({ ...data, schema_version: 1, limitations: LIMITATIONS, claims: data.claims ?? [] }, store.clean);

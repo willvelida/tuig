@@ -22,7 +22,7 @@ Run npm run lint, npm run typecheck and npm test. Run npm run build:binary to co
 
 ## Safety model
 
-The planned agent defaults to local models, explicitly allow-listed hosted endpoints, and terminal approval prompts. macOS and Linux (including WSL2) are the supported v1 platforms. Native Windows is out of scope. The runner and sandbox are not implemented yet.
+The planned agent defaults to local models, explicitly allow-listed hosted endpoints, and terminal approval prompts. macOS and Linux (including WSL2) are the supported v1 platforms. Native Windows is out of scope. The Stage 1 runner is implemented for reviewed synthetic fixtures; OS sandbox isolation is still pending Stage 2.
 
 Start with `tuig agents-start-here`, read an offline topic with `tuig docs get safety`, and inspect readiness with `tuig doctor`. Initialize a consumer repository with `tuig init`, review the proposed configuration, then grant trust with `tuig trust`. Use `--write-agents-md` only when you want the proposed AGENTS section written. Non-interactive trust requires `TUIG_TRUST_CI=1`. See [decisions](docs/decisions/) for architecture and defaults.
 
@@ -35,3 +35,9 @@ Commands return a versioned result envelope. Piped output defaults to JSON; term
 See [error codes](docs/reference/error-codes.md) and the [envelope schema](schemas/envelope.schema.json). Regenerate error references with npm run docs:errors; CI verifies them with npm run docs:check.
 
 Doctor reports Node/Bun versions, Git, ripgrep, platform sandbox availability, initialization, user trust and baseline config validity. Missing initialization returns unconfigured with `tuig init`; missing prerequisites on an initialized, trusted repository return degraded with fixes. A passing availability check does not prove sandbox isolation.
+
+## Run and replay
+
+On macOS or Linux/WSL2, initialize and trust a synthetic consumer repository, configure its model and visible checks, and commit the base. Run `tuig run --instruction "Fix the documented bug"` or a reviewed named task with `tuig run <task-id>`. Inspect the returned ID with `tuig runs show <id>`, then verify its decisions offline with `tuig runs replay <id> --adapter replay`. Replay does not execute recorded commands or edits.
+
+Read `tuig docs get configuration` for local, hosted and offline model configuration. Hosted development calls require explicit approval and synthetic fixtures. B0 measurements are pending human oracle review and model selection.

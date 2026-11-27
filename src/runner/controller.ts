@@ -13,6 +13,7 @@ export type ControllerOptions = {
   signal?: AbortSignal; handleSIGINT?: boolean; now?: () => number;
   assemble?: (conversation: Message[]) => Message[];
   context?: { agents: string; instruction: string };
+  execute?: (call: Parameters<typeof executeTool>[0]) => ToolResult;
 };
 export async function control(options: ControllerOptions): Promise<{ state: State; reason: string; totals: Totals }> {
   const limits = budgets(options.limits), now = options.now ?? (() => performance.now()), started = now();
@@ -66,7 +67,7 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
         for (const call of response.toolCalls) {
           if (!boundary(1, false)) break;
           totals.toolCalls++;
-          const result: ToolResult = executeTool(call, { root: options.root, store: options.store, allowedCommands: options.allowedCommands ?? [] });
+          const result: ToolResult = options.execute ? options.execute(call) : executeTool(call, { root: options.root, store: options.store, allowedCommands: options.allowedCommands ?? [] });
           conversation.push({ role: 'tool', content: result.output, tool_call_id: call.id, log: result.log });
           if (result.aborted !== undefined) { move('abort', result.aborted); break; }
           if (result.status === 'invalid_args') invalid = true;

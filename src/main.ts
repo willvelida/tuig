@@ -22,14 +22,16 @@ try {
 }
 if (process.exitCode === undefined) {
   try {
-    const { values, positionals } = parseArgs({ allowPositionals: true, options: { version: { type: 'boolean' }, help: { type: 'boolean' }, 'write-agents-md': { type: 'boolean' } } });
+    const { values, positionals } = parseArgs({ allowPositionals: true, options: { version: { type: 'boolean' }, help: { type: 'boolean' }, 'write-agents-md': { type: 'boolean' }, instruction: { type: 'string' }, adapter: { type: 'string' } } });
     const [verb, operation, topic] = positionals;
+    if (values.instruction !== undefined && verb !== 'run') throw new Error('--instruction is only valid with run.');
+    if (values.adapter !== undefined && !(verb === 'runs' && operation === 'replay')) throw new Error('--adapter is only valid with runs replay.');
     if (values['write-agents-md'] && verb !== 'init') throw new Error('--write-agents-md is only valid with init.');
     if (values.version || values.help || positionals.length === 0) {
       if (positionals.length || (values.version && values.help)) throw new Error('Use a single command or option.');
       result = values.version
         ? envelope('version', { version: VERSION }, { status: 'ok' })
-        : envelope('help', { usage: CLI_NAME + ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff]' }, { status: 'ok' });
+        : envelope('help', { usage: CLI_NAME + ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | runs show <id> | runs replay <id> --adapter replay]' }, { status: 'ok' });
     } else if (verb === 'agents-start-here' && positionals.length === 1) {
       result = envelope(verb, { content: DOCS['agents-start-here'] }, { status: 'ok' });
     } else if (verb === 'docs' && operation === 'get' && topic && positionals.length === 3) {
@@ -64,6 +66,15 @@ if (process.exitCode === undefined) {
         try { result=envelope('trust',trustRepository(process.cwd()),{status:'ok'}); }
         catch (cause) { const error=cliError('TUIG_E_CONFIG',cause instanceof Error ? cause.message : String(cause)); result=envelope('trust',{}, {status:'error',error,next_action:error.fix}); }
       }
+    } else if (verb === 'run' && ((values.instruction !== undefined && positionals.length === 1) || (values.instruction === undefined && positionals.length === 2))) {
+      const { runCommand } = await import('./cli/commands/run.js');
+      result = await runCommand(values.instruction !== undefined ? {instruction:values.instruction} : {taskId:operation!});
+    } else if (verb === 'runs' && operation === 'show' && topic && positionals.length === 3) {
+      const { showRun } = await import('./cli/commands/run.js');
+      result = showRun(topic);
+    } else if (verb === 'runs' && operation === 'replay' && topic && positionals.length === 3 && values.adapter === 'replay') {
+      const { replayRun } = await import('./cli/commands/replay.js');
+      result = await replayRun(topic);
     } else if (verb === 'doctor' && positionals.length === 1) {
       result = doctor();
     } else {

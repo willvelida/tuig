@@ -4,6 +4,8 @@ Generated from src/cli/errors.ts. Run npm run docs:errors to regenerate.
 
 | Code | Message | Fix |
 |---|---|---|
+| TUIG_E_DIRTY | Run base has uncommitted changes. | Review and commit or otherwise preserve your changes before starting a run. |
+| TUIG_E_ORACLE_REVIEW | Task oracle has not been reviewed. | Have the human review the oracle and record oracleReviewed: true before using this task. |
 | TUIG_E_EGRESS_DENIED | Model endpoint is not allow-listed. | Review and add the exact base URL to models.allowedEndpoints, or use a local endpoint. |
 | TUIG_E_MODEL_FORMAT | Invalid model response format. | Check the model server supports chat completions, tool calls and token usage. |
 | TUIG_E_MODEL_HTTP | Model HTTP request failed. | Check model endpoint availability and credentials; retry only after review. |
