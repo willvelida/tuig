@@ -6,7 +6,10 @@
 - schemas/: published result schema; src/cli/errors.ts: error registry.
 - scripts/error-docs.mjs: generates error reference and schema error codes.
 - .github/workflows/ci.yml: Node checks and Bun binary smoke tests.
-- Planned: src/engine/, src/runner/, src/sandbox/, schemas/, templates/ and fixtures/.
+- src/engine/repository-state.ts: read-only Git identity, trust and config checks.
+- src/cli/commands/doctor.ts: diagnostic checks; src/docs/: offline Markdown and generated bundle.
+- scripts/bundle-docs.mjs: embed docs before Node and Bun builds.
+- Planned: src/runner/, src/sandbox/, templates/ and fixtures/.
 
 Use strict TypeScript and Node-compatible APIs. Keep dependencies minimal and permissively licensed. Record non-trivial choices in docs/decisions/.
 

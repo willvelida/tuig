@@ -1,6 +1,9 @@
 import { CLI_NAME } from './name.js';
 
 export const ERRORS = {
+  TUIG_E_CONFIG: { message: 'Configuration or trust state is invalid.', fix: 'Repair configuration or user trust state, then run ' + CLI_NAME + ' doctor.' },
+  TUIG_E_PREREQUISITE: { message: 'Required tooling is unavailable.', fix: 'Install or enable the tools listed in doctor checks.' },
+  TUIG_E_DOC_TOPIC: { message: 'Unknown documentation topic.', fix: 'Run ' + CLI_NAME + ' docs get commands.' },
   TUIG_E_USAGE: { message: 'Invalid command arguments.', fix: `Run ${CLI_NAME} --help.` },
   TUIG_E_OUTPUT: { message: 'Invalid TUIG_OUTPUT value.', fix: 'Set TUIG_OUTPUT to json or text, or unset it.' },
   TUIG_E_UNCONFIGURED: { message: 'Repository is not configured.', fix: `Run ${CLI_NAME} init.` },
