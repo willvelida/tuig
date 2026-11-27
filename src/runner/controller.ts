@@ -8,6 +8,7 @@ import { budgets, preflight, afterResponse, type Budgets, type Totals } from './
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
 import { assemble } from './context.js';
+import type { Check } from '../checks/config.js';
 import { actionEntry, stuckDetector } from './stuck.js';
 export type ValidationResult = { checks: { name: string; passed: boolean }[] };
 export type ControllerOptions = {
@@ -18,6 +19,7 @@ export type ControllerOptions = {
   validate: () => Promise<ValidationResult>;
   limits?: Partial<Budgets>;
   allowedCommands?: string[][];
+  checks?: Check[];
   signal?: AbortSignal;
   handleSIGINT?: boolean;
   now?: () => number;
@@ -204,6 +206,7 @@ export async function control(
                 root: options.root,
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],
+                ...(options.checks ? { checks: options.checks } : {}),
                 ...(options.policy ?? {}),
                 ...toolContext,
               });

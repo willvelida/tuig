@@ -30,7 +30,8 @@ import { openTerminal, terminalApprover, type TerminalIO } from '../approval-pro
 import type { Mode, PolicyRule } from '../../engine/policy.js';
 import { detectSandbox, type Sandbox } from '../../sandbox/index.js';
 import type { Budgets } from '../../runner/budgets.js';
-import { runProcess } from '../../runner/tools/run.js';
+import { loadChecks, type Check } from '../../checks/config.js';
+import { executeCheck } from '../../checks/execute.js';
 import {
   checkpoint,
   cleanupWorkspace,
@@ -42,7 +43,6 @@ import {
   type Workspace,
 } from '../../engine/workspace.js';
 import { resumePoint } from '../../runner/resume.js';
-type Check = { name: string; argv: string[]; timeoutSec?: number };
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -128,25 +128,8 @@ export async function runCommand(options: {
       instruction = readFileSync(join(taskDir, 'instruction.md'), 'utf8');
     }
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
-    const checkConfig = JSON.parse(readFileSync(join(root, '.tuig/checks.json'), 'utf8')) as {
-      schema_version: number;
-      checks: Check[];
-    };
-    if (
-      checkConfig.schema_version !== 1 ||
-      !Array.isArray(checkConfig.checks) ||
-      !checkConfig.checks.length ||
-      !checkConfig.checks.every(
-        (check) =>
-          typeof check.name === 'string' &&
-          Array.isArray(check.argv) &&
-          check.argv.length > 0 &&
-          check.argv.every((arg) => typeof arg === 'string' && arg.length > 0) &&
-          (check.timeoutSec === undefined ||
-            (Number.isFinite(check.timeoutSec) && check.timeoutSec > 0 && check.timeoutSec <= 60)),
-      )
-    )
-      throw adapterError('TUIG_E_CONFIG');
+    const checkConfig = { checks: loadChecks(root) };
+    if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (
       config.policy?.allowedCommands &&
       (!Array.isArray(config.policy.allowedCommands) ||
@@ -252,20 +235,21 @@ export async function runCommand(options: {
       limits: config.budgets ?? {},
       allowedCommands:
         config.policy?.allowedCommands ?? checkConfig.checks.map((check) => check.argv),
+      checks: checkConfig.checks,
       validate: async () => {
         const checks = [];
         for (const check of checkConfig.checks) {
           // The check command is host-owned trusted configuration, not model text.
           const sequence = appendCheckIntent(store, check);
-          const result = await runProcess(
+          const result = await executeCheck(
             workspace.path,
-            check.argv,
-            '.',
-            (check.timeoutSec ?? 10) * 1000,
+            check,
             { passEnv, ...(sandbox ? { sandbox } : {}) },
+            (output) => {
+              writeArtifact(store, 'tool-logs/check-' + sequence + '.log', output);
+            },
           );
-          writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
-          checks.push({ name: check.name, passed: result.status === 'ok' });
+          checks.push({ name: check.name, passed: result.passed });
         }
         return { checks };
       },

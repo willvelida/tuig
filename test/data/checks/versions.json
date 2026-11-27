@@ -1,0 +1,47 @@
+{
+  "image": "7c9c9de9ffbe50030f6cc163bad0bdb2f19c4987d9f7dd79f0e4300c94965e55",
+  "node": "v24.22.1",
+  "pytest": "pytest 9.2.0",
+  "ruff": "ruff 0.17.6",
+  "eslint": "v10.15.0",
+  "tsc": "Version 6.0.3",
+  "commands": {
+    "pytest": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "--junitxml=pytest.xml",
+      "test_sample.py"
+    ],
+    "ruff": [
+      "ruff",
+      "check",
+      "--no-cache",
+      "--output-format",
+      "json",
+      "test_sample.py"
+    ],
+    "eslint": [
+      "eslint",
+      "--stdin",
+      "--stdin-filename",
+      "sample.js",
+      "-f",
+      "json"
+    ],
+    "tsc": [
+      "tsc",
+      "--ignoreConfig",
+      "--noEmit",
+      "--pretty",
+      "false",
+      "sample.ts"
+    ],
+    "tscJson": [
+      "tsc",
+      "--json"
+    ]
+  },
+  "tscJsonMode": "No --json in --help --all; --json rejected as TS5023."
+}

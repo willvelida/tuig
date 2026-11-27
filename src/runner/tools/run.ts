@@ -8,6 +8,7 @@ import { sandboxArgv, sandboxSpec, type Sandbox } from '../../sandbox/index.js';
 
 export type ProcessResult = {
   output: string;
+  stdout: string;
   status: 'ok' | 'nonzero_exit' | 'timeout' | 'cancelled';
   exitCode: number | null;
 };
@@ -64,6 +65,7 @@ export async function runProcess(
   try {
     return await new Promise<ProcessResult>((settle) => {
       const chunks: Buffer[] = [];
+      const stdout: Buffer[] = [];
       let size = 0,
         reason: 'timeout' | 'cancelled' | null = null,
         overflow = false,
@@ -120,7 +122,7 @@ export async function runProcess(
       };
       if (options.signal?.aborted) onAbort();
       else options.signal?.addEventListener('abort', onAbort, { once: true });
-      const collect = (data: Buffer): void => {
+      const collect = (data: Buffer, isStdout = false): void => {
         size += data.length;
         if (size > MAX_OUTPUT) {
           if (!overflow) terminate();
@@ -128,8 +130,9 @@ export async function runProcess(
           return;
         }
         chunks.push(data);
+        if (isStdout) stdout.push(data);
       };
-      child.stdout.on('data', collect);
+      child.stdout.on('data', (data: Buffer) => collect(data, true));
       child.stderr.on('data', collect);
       // Background children keep the pipes open after the leader exits; reap them.
       child.on('exit', (code) => {
@@ -155,6 +158,7 @@ export async function runProcess(
             '; its process group was terminated.';
         settle({
           output,
+          stdout: Buffer.concat(stdout).toString('utf8'),
           status: reason ?? (exitCode === 0 && !overflow && !spawnError ? 'ok' : 'nonzero_exit'),
           exitCode,
         });

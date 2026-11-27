@@ -5,6 +5,8 @@ import { readFile } from './read-file.js';
 import { edit } from './edit.js';
 import { search } from './search.js';
 import { runProcess } from './run.js';
+import { executeChecks } from '../../checks/execute.js';
+import type { Check } from '../../checks/config.js';
 import { abortWithReason } from './abort.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
 import { resolveTarget, workspacePath } from './paths.js';
@@ -26,6 +28,7 @@ const schema = (properties: Record<string, unknown>, required: string[]) => ({
   additionalProperties: false,
 });
 export const TOOL_SCHEMAS = {
+  run_checks: schema({}, []),
   read_file: schema({ path: text }, ['path']),
   search: schema({ path: text, pattern: text }, ['path', 'pattern']),
   edit: schema({ path: text, search: text, replace: { type: 'string' } }, [
@@ -85,6 +88,8 @@ export type ToolOptions = {
   root: string;
   store: RecordStore;
   allowedCommands?: string[][];
+  /** Host-pinned visible checks; never reloaded from agent-editable workspace config. */
+  checks?: Check[];
   /** Asked for consequential actions. Absent means non-interactive: deny. */
   approve?: (request: ApprovalRequest) => ApprovalDecision;
   /** Permission mode; defaults to ask. */
@@ -156,6 +161,39 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
     const args = call.arguments;
     try {
       switch (call.name) {
+        case 'run_checks': {
+          if (!options.checks?.length) throw new Error('No host-pinned visible checks configured.');
+          const result = await executeChecks(
+            options.root,
+            options.checks,
+            {
+              ...(options.signal ? { signal: options.signal } : {}),
+              ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+              ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+            },
+            (check) => {
+              enforce(
+                {
+                  ...options,
+                  allowedCommands: [
+                    ...(options.allowedCommands ?? []),
+                    ...options.checks!.map((c) => c.argv),
+                  ],
+                },
+                describeCommand(check.argv, options.root),
+                {
+                  id: call.id,
+                  tool: 'run_checks',
+                  cwd: '.',
+                  argv: check.argv,
+                },
+              );
+            },
+          );
+          output = JSON.stringify(result);
+          status = result.verdict === 'ok' ? 'ok' : 'nonzero_exit';
+          break;
+        }
         case 'read_file':
           enforce(options, facts('read_file'), { id: call.id, tool: 'read_file', cwd: '.' });
           output = readFile(options.root, args.path as string);
