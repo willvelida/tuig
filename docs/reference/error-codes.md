@@ -4,6 +4,10 @@ Generated from src/cli/errors.ts. Run npm run docs:errors to regenerate.
 
 | Code | Message | Fix |
 |---|---|---|
+| TUIG_E_EGRESS_DENIED | Model endpoint is not allow-listed. | Review and add the exact base URL to models.allowedEndpoints, or use a local endpoint. |
+| TUIG_E_MODEL_FORMAT | Invalid model response format. | Check the model server supports chat completions, tool calls and token usage. |
+| TUIG_E_MODEL_HTTP | Model HTTP request failed. | Check model endpoint availability and credentials; retry only after review. |
+| TUIG_E_REPLAY | Replay response is missing or invalid. | Select a complete recorded run with matching step indices. |
 | TUIG_E_CONFIG | Configuration or trust state is invalid. | Repair configuration or user trust state, then run tuig doctor. |
 | TUIG_E_PREREQUISITE | Required tooling is unavailable. | Install or enable the tools listed in doctor checks. |
 | TUIG_E_DOC_TOPIC | Unknown documentation topic. | Run tuig docs get commands. |
