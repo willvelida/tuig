@@ -51,7 +51,7 @@ if (process.exitCode === undefined) {
             {
               usage:
                 CLI_NAME +
-                ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | runs show <id> | runs replay <id> --adapter replay]',
+                ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | runs show <id> | runs replay <id> --adapter replay | runs cleanup <id>]',
             },
             { status: 'ok' },
           );
@@ -142,6 +142,9 @@ if (process.exitCode === undefined) {
           ? { instruction: values.instruction }
           : { taskId: operation! },
       );
+    } else if (verb === 'runs' && operation === 'cleanup' && topic && positionals.length === 3) {
+      const { cleanupRun } = await import('./cli/commands/run.js');
+      result = cleanupRun(topic);
     } else if (verb === 'runs' && operation === 'show' && topic && positionals.length === 3) {
       const { showRun } = await import('./cli/commands/run.js');
       result = showRun(topic);

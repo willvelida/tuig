@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -99,7 +107,7 @@ function fixture(t) {
     'fixture',
   ]);
   trustRepository(repo);
-  return { root, repo, git, config, configPath };
+  return { root, repo, git, config, configPath, startBranch: git(['branch', '--show-current']) };
 }
 test('fixture run produces branch/diff/events/summary; replay reconstructs event sequence without executing checks', async (t) => {
   const f = fixture(t);
@@ -107,7 +115,11 @@ test('fixture run produces branch/diff/events/summary; replay reconstructs event
   assert.ok(valid(r), JSON.stringify(valid.errors));
   assert.equal(r.status, 'ok', JSON.stringify(r));
   assert.equal(r.data.state, 'SUCCEEDED');
-  assert.match(f.git(['branch', '--show-current']), /^tuig\/run-/);
+  // The run happens in its own worktree; the main checkout keeps its branch and files.
+  assert.equal(f.git(['branch', '--show-current']), f.startBranch);
+  assert.equal(readFileSync(join(f.repo, 'a.txt'), 'utf8'), 'broken');
+  assert.equal(r.data.branch, 'tuig/run-' + r.data.id);
+  assert.equal(r.data.worktree, join(realpathSync(f.repo), '.tuig/temp/worktrees', r.data.id));
   const directory = join(f.repo, '.tuig/runs', r.data.id);
   for (const file of ['events.jsonl', 'summary.json', 'diff.patch'])
     assert.ok(existsSync(join(directory, file)));
@@ -116,13 +128,13 @@ test('fixture run produces branch/diff/events/summary; replay reconstructs event
   assert.match(shown.data.diff, /-broken/);
   assert.match(shown.data.diff, /\+fixed/);
   assert.equal(shown.data.summary.id, r.data.id);
-  const before = readFileSync(join(f.repo, 'checks.log'), 'utf8');
+  const before = readFileSync(join(r.data.worktree, 'checks.log'), 'utf8');
   const replay = await replayRun(r.data.id, f.repo);
   assert.equal(replay.status, 'ok', JSON.stringify(replay));
   assert.equal(replay.data.verified, true);
   assert.deepEqual(comparable(replay.data.events), comparable(shown.data.events));
-  assert.equal(readFileSync(join(f.repo, 'checks.log'), 'utf8'), before);
-  assert.equal(readFileSync(join(f.repo, 'a.txt'), 'utf8'), 'fixed');
+  assert.equal(readFileSync(join(r.data.worktree, 'checks.log'), 'utf8'), before);
+  assert.equal(readFileSync(join(r.data.worktree, 'a.txt'), 'utf8'), 'fixed');
   const entry = resolve('dist/main.js');
   for (const args of [
     ['runs', 'show', r.data.id],

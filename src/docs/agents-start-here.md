@@ -2,7 +2,7 @@
 
 tuig is a model-neutral coding harness with a deterministic engineering layer and a thin agent runner. Work one task at a time.
 
-Implemented commands: agents-start-here, docs get <topic>, doctor, init, trust, template diff, run, runs show, runs replay, --help and --version. Use docs get commands to see planned verbs and their availability.
+Implemented commands: agents-start-here, docs get <topic>, doctor, init, trust, template diff, run, runs show, runs replay, runs cleanup, --help and --version. Use docs get commands to see planned verbs and their availability.
 
 Every command returns a schema_version 1 envelope containing command, status and data. Non-ok results include next_action. Exit codes: ok/degraded 0, unconfigured 2, error 1. Pipes default to JSON; TUIG_OUTPUT=json|text overrides terminal detection.
 

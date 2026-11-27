@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { SAFE_GIT_ENV } from '../../engine/git.js';
 import { workspacePath } from './paths.js';
 export type ProcessResult = {
   output: string;
@@ -15,7 +16,8 @@ export function runProcess(
   if (!allowed.some((command) => JSON.stringify(command) === JSON.stringify(argv)))
     throw new Error('Command argv is not allow-listed.');
   const dir = workspacePath(root, cwd);
-  const env: NodeJS.ProcessEnv = {};
+  // Nested Git calls inherit the hook and fsmonitor overrides.
+  const env: NodeJS.ProcessEnv = { ...SAFE_GIT_ENV };
   for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'LANG', 'LC_ALL', 'TMPDIR', 'TEMP', 'TMP'])
     if (process.env[name]) env[name] = process.env[name];
   const result = spawnSync(argv[0]!, argv.slice(1), {

@@ -1,13 +1,7 @@
 import { wireMessage } from '../context.js';
-import { cliError, type ErrorCode } from '../../cli/errors.js';
+import { codedError } from '../../cli/errors.js';
 import type { ModelAdapter, ModelConfig, ModelResponse, ToolCall } from './types.js';
-export function adapterError(
-  code: ErrorCode,
-  message?: string,
-): Error & { code: ErrorCode; fix: string } {
-  const error = cliError(code, message);
-  return Object.assign(new Error(error.message), { code, fix: error.fix });
-}
+export const adapterError = codedError;
 export function endpointPolicy(baseURL: string, allowedEndpoints: string[]): URL {
   let url: URL;
   try {

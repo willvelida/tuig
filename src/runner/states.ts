@@ -27,6 +27,7 @@ export const EVENTS = [
   'start',
   'request_approval',
   'approve',
+  'deny',
   'pause',
   'resume',
   'validate',
@@ -43,7 +44,7 @@ export type StateEvent = (typeof EVENTS)[number];
 const table: Partial<Record<State, Partial<Record<StateEvent, State>>>> = {
   PENDING: { start: 'RUNNING' },
   RUNNING: { request_approval: 'AWAITING_APPROVAL', pause: 'PAUSED', validate: 'VALIDATING' },
-  AWAITING_APPROVAL: { approve: 'RUNNING', pause: 'PAUSED' },
+  AWAITING_APPROVAL: { approve: 'RUNNING', deny: 'RUNNING', pause: 'PAUSED' },
   PAUSED: { resume: 'RUNNING' },
   VALIDATING: { repair: 'REPAIRING', succeed: 'SUCCEEDED', fail: 'FAILED_VALIDATION' },
   REPAIRING: { request_approval: 'AWAITING_APPROVAL', pause: 'PAUSED', validate: 'VALIDATING' },

@@ -5,6 +5,10 @@ export const ERRORS = {
     message: 'Run base has uncommitted changes.',
     fix: 'Review and commit or otherwise preserve your changes before starting a run.',
   },
+  TUIG_E_WORKSPACE: {
+    message: 'Run workspace could not be created or used safely.',
+    fix: 'Ensure .tuig/temp/ is gitignored and committed (tuig init adds it), that no tuig/run-<id> branch or worktree already exists, then retry.',
+  },
   TUIG_E_ORACLE_REVIEW: {
     message: 'Task oracle has not been reviewed.',
     fix: 'Have the human review the oracle and record oracleReviewed: true before using this task.',
@@ -56,4 +60,11 @@ export type ErrorCode = keyof typeof ERRORS;
 export type CliError = { code: ErrorCode; message: string; fix: string };
 export function cliError(code: ErrorCode, message?: string): CliError {
   return { code, message: message ?? ERRORS[code].message, fix: ERRORS[code].fix };
+}
+export function codedError(
+  code: ErrorCode,
+  message?: string,
+): Error & { code: ErrorCode; fix: string } {
+  const error = cliError(code, message);
+  return Object.assign(new Error(error.message), { code, fix: error.fix });
 }

@@ -1,16 +1,11 @@
-import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CLI_NAME } from '../cli/name.js';
+import { runGit } from './git.js';
 
 export function git(args: string[], cwd: string): string {
-  const result = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    encoding: 'utf8',
-    timeout: 5000,
-    maxBuffer: 1024 * 1024,
-  });
+  const result = runGit(args, cwd, { timeoutMs: 5000, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error('Cannot read Git repository state.');
   return result.stdout.trim();
 }

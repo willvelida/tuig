@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { appendEvent, writeSummary, type RecordStore } from '../engine/record.js';
 import { recordingAdapter } from './adapter/recording.js';
-import type { Message, ModelAdapter } from './adapter/types.js';
+import type { Message, ModelAdapter, ToolDefinition } from './adapter/types.js';
+import type { ApprovalDecision, ApprovalRequest, Approver } from './approval.js';
 import { budgets, preflight, afterResponse, type Budgets, type Totals } from './budgets.js';
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
@@ -20,8 +21,17 @@ export type ControllerOptions = {
   now?: () => number;
   assemble?: (conversation: Message[]) => Message[];
   context?: { agents: string; instruction: string };
-  execute?: (call: Parameters<typeof executeTool>[0]) => ToolResult;
+  execute?: (call: Parameters<typeof executeTool>[0], context: ToolContext) => ToolResult;
+  /** Human decision source. Absent means non-interactive: approvals become denials. */
+  approver?: Approver;
+  /** Runs before every model request, e.g. to checkpoint the workspace. */
+  beforeTurn?: (turn: number) => void;
+  /** Tool definitions sent with each request; replay supplies the recorded ones. */
+  tools?: () => ToolDefinition[];
+  /** Extra run_start fields, such as the workspace identity. */
+  start?: Record<string, unknown>;
 };
+export type ToolContext = { approve?: (request: ApprovalRequest) => ApprovalDecision };
 export async function control(
   options: ControllerOptions,
 ): Promise<{ state: State; reason: string; totals: Totals }> {
@@ -75,13 +85,29 @@ export async function control(
     model: adapter.model,
     budgets: limits,
     ...(adapter.historyMode ? { historyMode: adapter.historyMode } : {}),
+    ...options.start,
   });
   move('start');
+  // Approval suspends the run in AWAITING_APPROVAL until the approver decides.
+  const approver = options.approver;
+  const toolContext: ToolContext = approver
+    ? {
+        approve(request) {
+          appendEvent(options.store, 'approval_requested', { request });
+          move('request_approval', request.rule);
+          const decision = approver(request);
+          appendEvent(options.store, 'approval_decided', { id: request.id, decision });
+          move(decision === 'deny' ? 'deny' : 'approve', decision);
+          return decision;
+        },
+      }
+    : {};
   try {
     while (!TERMINAL.has(state)) {
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (!boundary()) break;
       const step = totals.requests++;
+      options.beforeTurn?.(step);
       let response;
       try {
         const messages = options.assemble
@@ -93,7 +119,8 @@ export async function control(
                 preserveHistory: adapter.historyMode === 'append-only',
               })
             : [...options.messages, ...conversation];
-        response = await adapter.complete({ step, messages, tools: TOOL_DEFINITIONS, signal });
+        const tools = options.tools ? options.tools() : TOOL_DEFINITIONS;
+        response = await adapter.complete({ step, messages, tools, signal });
       } catch (error) {
         if (signal.aborted) {
           move('cancel', 'SIGINT or cancellation requested');
@@ -146,11 +173,12 @@ export async function control(
           if (!boundary(1, false)) break;
           totals.toolCalls++;
           const result: ToolResult = options.execute
-            ? options.execute(call)
+            ? options.execute(call, toolContext)
             : executeTool(call, {
                 root: options.root,
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],
+                ...toolContext,
               });
           conversation.push({
             role: 'tool',

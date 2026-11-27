@@ -13,7 +13,8 @@ import {
 import { replayAdapter } from '../../runner/adapter/replay.js';
 import { adapterError } from '../../runner/adapter/openai-compat.js';
 import { control, type ValidationResult } from '../../runner/controller.js';
-import type { Message } from '../../runner/adapter/types.js';
+import type { Message, ToolDefinition } from '../../runner/adapter/types.js';
+import type { ApprovalDecision, ApprovalRequest } from '../../runner/approval.js';
 import type { Budgets } from '../../runner/budgets.js';
 import type { ToolResult } from '../../runner/tools/index.js';
 import { commandFailure, rootAt, showRun } from './run.js';
@@ -88,16 +89,37 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
         next()?.type === 'state_transition' && next()?.data.reason === 'wall'
           ? Number((start.data.budgets as Budgets).wallSeconds) * 1000
           : 0,
+      start: Object.fromEntries(
+        Object.entries(start.data).filter(
+          ([key]) => !['endpoint', 'model', 'budgets', 'historyMode'].includes(key),
+        ),
+      ),
       assemble: () => {
         const request = requests[requestIndex++];
         if (!request) throw adapterError('TUIG_E_REPLAY');
         return request.data.messages as Message[];
       },
-      execute: (call) => {
+      // Records made before a tool was added must replay with the tools they were offered.
+      tools: () => (requests[requestIndex - 1]?.data.tools ?? []) as ToolDefinition[],
+      beforeTurn: () => {
+        const event = next();
+        if (event?.type === 'checkpoint') appendEvent(store, 'checkpoint', event.data);
+      },
+      approver: (): ApprovalDecision => {
+        const event = next();
+        if (event?.type !== 'approval_decided') throw adapterError('TUIG_E_REPLAY');
+        return event.data.decision as ApprovalDecision;
+      },
+      execute: (call, context) => {
         if (next()?.type === 'tool_intent') {
           const event = next()!;
           appendEvent(store, 'tool_intent', event.data);
         }
+        if (next()?.type === 'approval_requested') {
+          if (!context.approve) throw adapterError('TUIG_E_REPLAY');
+          context.approve(next()!.data.request as ApprovalRequest);
+        }
+        if (next()?.type === 'policy_denied') appendEvent(store, 'policy_denied', next()!.data);
         const outcome = next();
         if (
           outcome?.type !== 'tool_call' ||

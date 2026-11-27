@@ -25,8 +25,16 @@ import { openAIAdapter, adapterError } from '../../runner/adapter/openai-compat.
 import { replayAdapter } from '../../runner/adapter/replay.js';
 import type { ModelConfig } from '../../runner/adapter/types.js';
 import { control } from '../../runner/controller.js';
+import type { Approver } from '../../runner/approval.js';
 import type { Budgets } from '../../runner/budgets.js';
 import { runProcess } from '../../runner/tools/run.js';
+import {
+  checkpoint,
+  cleanupWorkspace,
+  createWorkspace,
+  diffPatch,
+  openWorkspace,
+} from '../../engine/workspace.js';
 type Check = { name: string; argv: string[]; timeoutSec?: number };
 type Config = {
   mode: string;
@@ -71,6 +79,8 @@ export async function runCommand(options: {
   instruction?: string;
   cwd?: string;
   platform?: NodeJS.Platform;
+  /** Decides approval requests; absent means non-interactive (deny). */
+  approver?: Approver;
 }): Promise<Envelope> {
   try {
     const root = rootAt(options.cwd ?? process.cwd()),
@@ -144,11 +154,10 @@ export async function runCommand(options: {
       config.syntheticFixture !== true
     )
       throw adapterError('TUIG_E_POLICY_DENIED');
-    // Stage 1 branches are deliberately simple; worktrees arrive in Stage 2.
-    if (git(['status', '--porcelain'], root)) throw adapterError('TUIG_E_DIRTY');
-    const id = randomUUID(),
-      branch = 'tuig/run-' + id;
-    git(['switch', '-c', branch], root);
+    // Each run works in its own worktree; the human's checkout is never touched.
+    const id = randomUUID();
+    const workspace = createWorkspace(root, id);
+    const branch = workspace.branch;
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
     });
@@ -156,8 +165,13 @@ export async function runCommand(options: {
       ? readFileSync(join(root, 'AGENTS.md'), 'utf8')
       : '';
     const result = await control({
-      root,
+      root: workspace.path,
       store,
+      start: { workspace: { branch, base: workspace.base } },
+      ...(options.approver ? { approver: options.approver } : {}),
+      beforeTurn: (turn) => {
+        appendEvent(store, 'checkpoint', { turn, ...checkpoint(workspace, turn) });
+      },
       adapter,
       messages: [],
       context: { agents, instruction },
@@ -168,19 +182,24 @@ export async function runCommand(options: {
         const checks = checkConfig.checks.map((check) => {
           // The check command is host-owned trusted configuration, not model text.
           const sequence = appendCheckIntent(store, check);
-          const result = runProcess(root, check.argv, '.', (check.timeoutSec ?? 10) * 1000, [
+          const result = runProcess(
+            workspace.path,
             check.argv,
-          ]);
+            '.',
+            (check.timeoutSec ?? 10) * 1000,
+            [check.argv],
+          );
           writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
           return { name: check.name, passed: result.status === 'ok' };
         });
         return { checks };
       },
     });
-    writeArtifact(store, 'diff.patch', git(['diff', '--binary', 'HEAD', '--', '.'], root));
+    writeArtifact(store, 'diff.patch', diffPatch(workspace));
     const summary = readRun(store).summary as Record<string, unknown>;
-    writeSummary(store, { ...summary, id, branch, taskId: options.taskId ?? null });
-    const data = { id, branch, ...result };
+    const location = { branch, base: workspace.base, worktree: workspace.path };
+    writeSummary(store, { ...summary, id, ...location, taskId: options.taskId ?? null });
+    const data = { id, ...location, ...result };
     return result.state === 'SUCCEEDED'
       ? envelope('run', data, { status: 'ok' })
       : envelope('run', data, {
@@ -194,6 +213,20 @@ export async function runCommand(options: {
 import { appendEvent, type RecordStore } from '../../engine/record.js';
 function appendCheckIntent(store: RecordStore, check: Check): number {
   return appendEvent(store, 'tool_intent', { name: 'acceptance_check', argv: check.argv }).seq;
+}
+/** Remove a run's worktree, keeping tuig/run-<id> with any uncommitted final state. */
+export function cleanupRun(id: string, cwd = process.cwd()): Envelope {
+  try {
+    const root = rootAt(cwd);
+    trusted(root);
+    const start = readRun(existingRecord(root, id)).events.find((e) => e.type === 'run_start');
+    const recorded = start?.data.workspace as { base?: unknown } | undefined;
+    if (typeof recorded?.base !== 'string') throw adapterError('TUIG_E_WORKSPACE');
+    const result = cleanupWorkspace(openWorkspace(root, id, recorded.base));
+    return envelope('runs cleanup', { id, ...result }, { status: 'ok' });
+  } catch (error) {
+    return commandFailure('runs cleanup', error);
+  }
 }
 export function showRun(id: string, cwd = process.cwd()): Envelope {
   try {

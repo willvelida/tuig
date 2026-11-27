@@ -6,6 +6,9 @@ import { edit } from './edit.js';
 import { search } from './search.js';
 import { runProcess } from './run.js';
 import { abortWithReason } from './abort.js';
+import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
+import { resolveTarget } from './paths.js';
+import type { ApprovalRequest, ApprovalDecision } from '../approval.js';
 const text = { type: 'string', minLength: 1 };
 const schema = (properties: Record<string, unknown>, required: string[]) => ({
   type: 'object',
@@ -28,6 +31,13 @@ export const TOOL_SCHEMAS = {
       timeoutMs: { type: 'integer', minimum: 1, maximum: 60000 },
     },
     ['argv', 'cwd', 'timeoutMs'],
+  ),
+  git: schema(
+    {
+      subcommand: { enum: [...GIT_SUBCOMMANDS] },
+      args: { type: 'array', maxItems: 50, items: text },
+    },
+    ['subcommand', 'args'],
   ),
   abort_with_reason: schema({ reason: text }, ['reason']),
 } as const;
@@ -62,10 +72,30 @@ export function untrusted(source: string, value: string): string {
     '\n</untrusted>'
   );
 }
-export function executeTool(
-  call: ToolCall,
-  options: { root: string; store: RecordStore; allowedCommands?: string[][] },
-): ToolResult {
+export type ToolOptions = {
+  root: string;
+  store: RecordStore;
+  allowedCommands?: string[][];
+  /** Asked for consequential actions. Absent means non-interactive: deny. */
+  approve?: (request: ApprovalRequest) => ApprovalDecision;
+};
+function lineCount(text: string): number {
+  return text === '' ? 0 : text.split('\n').length;
+}
+/** Ask for approval; a denial is recorded and surfaces as policy_denied. */
+function requireApproval(options: ToolOptions, request: ApprovalRequest): void {
+  const decision = options.approve ? options.approve(request) : 'deny';
+  if (decision === 'deny') {
+    appendEvent(options.store, 'policy_denied', {
+      id: request.id,
+      tool: request.tool,
+      rule: request.rule,
+      reason: options.approve ? 'denied by approver' : 'approval required; non-interactive run',
+    });
+    throw new Error('Action requires approval (' + request.rule + ') and was denied.');
+  }
+}
+export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
   let status: ToolResult['status'] = 'ok',
     output = '',
     aborted: string | undefined;
@@ -88,14 +118,40 @@ export function executeTool(
         case 'search':
           output = search(options.root, args.path as string, args.pattern as string);
           break;
-        case 'edit':
+        case 'edit': {
+          const target = resolveTarget(options.root, args.path as string, 'write');
+          if (target.rule)
+            requireApproval(options, {
+              id: call.id,
+              tool: 'edit',
+              cwd: '.',
+              path: target.rel,
+              rule: 'protected-path:' + target.rule,
+              diffStat:
+                '-' +
+                lineCount(args.search as string) +
+                ' +' +
+                lineCount(args.replace as string) +
+                ' lines',
+            });
           output = edit(
-            options.root,
+            target.file,
             args.path as string,
             args.search as string,
             args.replace as string,
           );
           break;
+        }
+        case 'git': {
+          const result = gitTool(
+            options.root,
+            args.subcommand as GitSubcommand,
+            args.args as string[],
+          );
+          output = result.output;
+          status = result.status;
+          break;
+        }
         case 'run': {
           const result = runProcess(
             options.root,
