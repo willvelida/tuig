@@ -5,12 +5,14 @@ import type { Message, ModelAdapter } from './adapter/types.js';
 import { budgets, preflight, afterResponse, type Budgets, type Totals } from './budgets.js';
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
+import { assemble } from './context.js';
 export type ValidationResult = { checks: { name: string; passed: boolean }[] };
 export type ControllerOptions = {
   root: string; store: RecordStore; adapter: ModelAdapter; messages: Message[];
   validate: () => Promise<ValidationResult>; limits?: Partial<Budgets>; allowedCommands?: string[][];
   signal?: AbortSignal; handleSIGINT?: boolean; now?: () => number;
   assemble?: (conversation: Message[]) => Message[];
+  context?: { agents: string; instruction: string };
 };
 export async function control(options: ControllerOptions): Promise<{ state: State; reason: string; totals: Totals }> {
   const limits = budgets(options.limits), now = options.now ?? (() => performance.now()), started = now();
@@ -43,7 +45,7 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
       const step = totals.requests++;
       let response;
       try {
-        const messages = options.assemble ? options.assemble(conversation) : [...options.messages, ...conversation];
+        const messages = options.assemble ? options.assemble(conversation) : options.context ? assemble({ ...options.context, conversation }) : [...options.messages, ...conversation];
         response = await adapter.complete({ step, messages, tools: TOOL_DEFINITIONS, signal });
       } catch (error) {
         if (signal.aborted) { move('cancel', 'SIGINT or cancellation requested'); break; }
@@ -65,7 +67,7 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
           if (!boundary(1, false)) break;
           totals.toolCalls++;
           const result: ToolResult = executeTool(call, { root: options.root, store: options.store, allowedCommands: options.allowedCommands ?? [] });
-          conversation.push({ role: 'tool', content: result.output, tool_call_id: call.id });
+          conversation.push({ role: 'tool', content: result.output, tool_call_id: call.id, log: result.log });
           if (result.aborted !== undefined) { move('abort', result.aborted); break; }
           if (result.status === 'invalid_args') invalid = true;
           const hash = createHash('sha256').update(JSON.stringify([call.name, call.arguments, result.status, result.output])).digest('hex');

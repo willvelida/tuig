@@ -1,5 +1,5 @@
 export type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
-export type Message = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_call_id?: string; tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[] };
+export type Message = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; log?: string; tool_call_id?: string; tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[] };
 export type ToolDefinition = { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } };
 export type Usage = { input: number; cached: number; output: number; reasoning: number; cost: number };
 export type ModelResponse = { message: string | null; toolCalls: ToolCall[]; usage: Usage; stopReason: string };
