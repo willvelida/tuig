@@ -37,6 +37,9 @@
       "properties": {
         "code": {
           "enum": [
+            "TUIG_E_CONFIG",
+            "TUIG_E_PREREQUISITE",
+            "TUIG_E_DOC_TOPIC",
             "TUIG_E_USAGE",
             "TUIG_E_OUTPUT",
             "TUIG_E_UNCONFIGURED",

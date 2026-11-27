@@ -18,6 +18,7 @@ function invoke(args, override) {
 for (const [args, command, code] of [
   [[], 'help', 0], [['--help'], 'help', 0], [['--version'], 'version', 0],
   [['--unknown'], 'tuig', 1], [['run'], 'tuig', 1],
+  [['agents-start-here'], 'agents-start-here', 0], [['docs','get','safety'], 'docs get', 0],
 ]) {
   test('schema-valid CLI output: ' + JSON.stringify(args), () => {
     const r = invoke(args);
