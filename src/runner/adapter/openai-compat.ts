@@ -59,7 +59,7 @@ export function openAIAdapter(config: ModelConfig, env: NodeJS.ProcessEnv = proc
       response = await fetch(endpoint + '/chat/completions', {
         method: 'POST', redirect: 'error', signal,
         headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: 'Bearer ' + key } : {}) },
-        body: JSON.stringify({ model: config.model, messages: request.messages.map(wireMessage), ...(request.tools?.length ? { tools: request.tools } : {}), stream: false }),
+        body: JSON.stringify({ model: config.model, messages: request.messages.map(message => wireMessage(message, false)), ...(request.tools?.length ? { tools: request.tools } : {}), stream: false }),
       });
     } catch {
       if (request.signal?.aborted) throw request.signal.reason;
