@@ -21,17 +21,21 @@
   "files": [
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "schemas"
   ],
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
-    "build:binary": "bun build --compile src/main.ts --outfile bin/tuig"
+    "build:binary": "bun build --compile src/main.ts --outfile bin/tuig",
+    "docs:errors": "npm run build && node scripts/error-docs.mjs",
+    "docs:check": "npm run build && node scripts/error-docs.mjs --check"
   },
   "devDependencies": {
     "@types/node": "24.19.4",
+    "ajv": "8.20.0",
     "bun": "1.4.5",
     "eslint": "10.15.0",
     "typescript": "6.0.3",

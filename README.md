@@ -27,3 +27,9 @@ The planned agent defaults to local models, explicitly allow-listed hosted endpo
 The planned onboarding command is tuig agents-start-here, which will ship with the self-teaching documentation. See [decisions](docs/decisions/) for architecture and defaults.
 
 Licensed under [Apache-2.0](LICENSE).
+
+## Output
+
+Commands return a versioned result envelope. Piped output defaults to JSON; terminals display the same fields as text. Set TUIG_OUTPUT=json or TUIG_OUTPUT=text to override. Non-ok results include a next_action; exit codes are 0 for ok/degraded, 2 for unconfigured, and 1 for error.
+
+See [error codes](docs/reference/error-codes.md) and the [envelope schema](schemas/envelope.schema.json). Regenerate error references with npm run docs:errors; CI verifies them with npm run docs:check.
