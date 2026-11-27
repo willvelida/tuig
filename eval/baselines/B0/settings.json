@@ -1,0 +1,21 @@
+{
+  "adapter": "anthropic",
+  "baseURL": "https://api.anthropic.com/v1/messages",
+  "model": "claude-opus-5-5",
+  "apiKeyEnv": "CLAUDE_ACCESS_TOKEN",
+  "allowedEndpoints": [
+    "https://api.anthropic.com/v1/messages"
+  ],
+  "prices": {
+    "claude-opus-5-5": {
+      "input": 4,
+      "output": 20,
+      "cached": 0.2,
+      "cacheWrite5m": 5,
+      "cacheWrite1h": 8
+    }
+  },
+  "maxOutputTokens": 8192,
+  "effort": "medium",
+  "timeoutMs": 120000
+}

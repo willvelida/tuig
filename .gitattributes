@@ -1,2 +1,3 @@
 fixtures/** text eol=lf
 eval/baselines/** text eol=lf
+scripts/*.sh text eol=lf

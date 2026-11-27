@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "awaiting-human-review-model-and-runtime",
+  "status": "verified-workflow-awaiting-hosted-credential",
   "fixtureVersion": "ledger-lite-v1",
   "tasks": [
     "fix-rounding",
@@ -8,7 +8,7 @@
     "fix-currency-format"
   ],
   "repetitions": 5,
-  "model": null,
-  "runtime": null,
+  "model": "claude-opus-5-5",
+  "runtime": "7c9c9de9ffbe50030f6cc163bad0bdb2f19c4987d9f7dd79f0e4300c94965e55",
   "results": []
 }

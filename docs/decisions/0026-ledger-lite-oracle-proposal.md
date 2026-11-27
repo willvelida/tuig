@@ -1,6 +1,6 @@
 # ledger-lite v1 oracle proposal
 
-- Status: Proposed - pending human oracle review
+- Status: Accepted - human approved all three oracles on 2026-11-27
 - Date: 2026-11-27
 
 ## Context
@@ -16,3 +16,5 @@ Configure pytest 9.2.0 and Ruff 0.17.6 as pinned fixture development tools. PyPI
 ## Consequences
 
 This proposal is structurally reviewable but not benchmark evidence. Task runs, reference-oracle evaluation, isolation acceptance and B0 measurement remain pending. Use an isolated execution boundary that keeps host oracles out of agent-run subprocess filesystems; do not infer that path checks alone sandbox modified Python code. Optional container setup and model choice need human input before dependent work.
+
+Human decision: all three pinned oracles approved. Use Podman as container engine for authorized Ubuntu WSL/container setup. Hosted endpoint/model details are still pending; no hosted calls approved for a concrete endpoint yet.

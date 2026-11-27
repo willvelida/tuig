@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "oracle-and-runtime-verification",
+  "isModelBaseline": false,
+  "node": "v24.22.1",
+  "podman": "podman version 4.9.3",
+  "image": "7c9c9de9ffbe50030f6cc163bad0bdb2f19c4987d9f7dd79f0e4300c94965e55",
+  "platform": "linux",
+  "arch": "arm64",
+  "checks": [
+    {
+      "task": "fix-currency-format",
+      "approvedOracleHashes": {
+        "visible": "4f3791990ebea3bdc6e54ba6e2c629bdeba2fe4304f4552cdcd9b390d88b6cef",
+        "hidden": "ff4e3e8356aa2483c2e27495d622db411351fa6801f22a7e5851e5420786e7da",
+        "reference": "e7233c9a8ab948a4709e4006439e65e6d592a01fb65bc1e33f28bd673829de61"
+      },
+      "buggyVisibleFailed": true,
+      "buggyHiddenFailed": true,
+      "referenceVisiblePassed": true,
+      "referenceHiddenPassed": true,
+      "lintPassed": true,
+      "agentContainerIsolationPassed": true,
+      "visibleResult": ".                                                                        [100%]\n1 passed in 0.12s",
+      "hiddenResult": "........                                                                 [100%]\n8 passed in 0.08s"
+    },
+    {
+      "task": "fix-minor-units",
+      "approvedOracleHashes": {
+        "visible": "d4f9da37f87411c72f7a0a3a192e06c56f1bff3fa2d41ecb48c8686693b65638",
+        "hidden": "0faf45ab03efbce2e38aeb89d0f5dfc567f7cb3912dfbb176b721aa214222e4d",
+        "reference": "973576ae69dc7e2bbae557b98dcdfb084d162c1c6c40ba7a0dd4c526cd450310"
+      },
+      "buggyVisibleFailed": true,
+      "buggyHiddenFailed": true,
+      "referenceVisiblePassed": true,
+      "referenceHiddenPassed": true,
+      "lintPassed": true,
+      "agentContainerIsolationPassed": true,
+      "visibleResult": ".                                                                        [100%]\n1 passed in 0.11s",
+      "hiddenResult": "........                                                                 [100%]\n8 passed in 0.09s"
+    },
+    {
+      "task": "fix-rounding",
+      "approvedOracleHashes": {
+        "visible": "68798b7f9e0c792609f195bb8e7b3b130e3f113825162b574162aa7fe29a0772",
+        "hidden": "46fb57431568099d4b1abf3182e337aa439bb07eb23bd33f7f23cbd177122b9b",
+        "reference": "662f952f6464df5ab82eb8be4dfbc4fdf64a9c91256a37370ec742a3a5691c31"
+      },
+      "buggyVisibleFailed": true,
+      "buggyHiddenFailed": true,
+      "referenceVisiblePassed": true,
+      "referenceHiddenPassed": true,
+      "lintPassed": true,
+      "agentContainerIsolationPassed": true,
+      "visibleResult": ".                                                                        [100%]\n1 passed in 0.13s",
+      "hiddenResult": "........                                                                 [100%]\n8 passed in 0.12s"
+    }
+  ]
+}

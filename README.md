@@ -43,3 +43,5 @@ On macOS or Linux/WSL2, initialize and trust a synthetic consumer repository, co
 Read `tuig docs get configuration` for local, hosted and offline model configuration. Hosted development calls require explicit approval and synthetic fixtures. B0 measurements are pending human oracle review and model selection.
 
 The three benchmark task proposals are ready for [human oracle review](fixtures/ORACLE_REVIEW.md). `npm run fixtures:check` validates metadata and pinned hashes without running the Python oracles. Step 1.11 and the Stage 1 checkpoint remain incomplete until review, isolated execution and B0 measurements pass.
+
+Native Anthropic Messages is supported alongside compatible endpoints and replay. The approved Stage 1 configuration is in `eval/baselines/B0/settings.json` and stores only the credential variable name. Rootless Podman setup is reproducible with `sh scripts/prepare-stage1-wsl.sh`; see the [B0 instructions](eval/baselines/B0/README.md) for verification and measurement. Signed native history is preserved without masking.
