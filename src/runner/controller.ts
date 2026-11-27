@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import { appendEvent, writeSummary, type RecordStore } from '../engine/record.js';
 import { recordingAdapter } from './adapter/recording.js';
-import type { Message, ModelAdapter, ToolDefinition } from './adapter/types.js';
+import type { Message, ModelAdapter, ModelResponse, ToolDefinition } from './adapter/types.js';
 import type { ApprovalDecision, ApprovalRequest, Approver } from './approval.js';
 import type { Mode, PolicyRule } from '../engine/policy.js';
 import type { Sandbox } from '../sandbox/index.js';
@@ -9,6 +8,7 @@ import { budgets, preflight, afterResponse, type Budgets, type Totals } from './
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
 import { assemble } from './context.js';
+import { actionEntry, stuckDetector } from './stuck.js';
 export type ValidationResult = { checks: { name: string; passed: boolean }[] };
 export type ControllerOptions = {
   root: string;
@@ -35,10 +35,38 @@ export type ControllerOptions = {
   tools?: () => ToolDefinition[];
   /** Permission mode and repository rules for agent tool calls; defaults to ask. */
   policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[]; sandbox?: Sandbox };
+  /** Continue an interrupted run: prior conversation and counters, carried over. */
+  resume?: { conversation: Message[]; totals: Totals };
   /** Extra run_start fields, such as the workspace identity. */
   start?: Record<string, unknown>;
 };
 export type ToolContext = { approve?: (request: ApprovalRequest) => ApprovalDecision };
+/** Conversation entries, shared with resume so a rebuilt history is byte-identical. */
+export function assistantMessage(response: ModelResponse): Message {
+  return {
+    role: 'assistant',
+    content: response.message,
+    ...(response.providerContent ? { providerContent: response.providerContent } : {}),
+    ...(response.toolCalls.length
+      ? {
+          tool_calls: response.toolCalls.map((call) => ({
+            id: call.id,
+            type: 'function' as const,
+            function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+          })),
+        }
+      : {}),
+  };
+}
+export function toolMessage(id: string, output: string, log: string): Message {
+  return { role: 'tool', content: output, tool_call_id: id, log };
+}
+export function repairMessage(failed: string[]): Message {
+  return {
+    role: 'user',
+    content: untrusted('sensor', 'Visible acceptance checks failed: ' + failed.join(', ')),
+  };
+}
 export async function control(
   options: ControllerOptions,
 ): Promise<{ state: State; reason: string; totals: Totals }> {
@@ -53,7 +81,9 @@ export async function control(
     ...(options.signal ? [options.signal] : []),
   ]);
   const adapter = recordingAdapter(options.adapter, options.store);
-  const conversation: Message[] = [];
+  // A resumed run continues the conversation and counters of the interrupted one,
+  // so budgets cannot be reset by killing and resuming.
+  const conversation: Message[] = [...(options.resume?.conversation ?? [])];
   const totals: Totals = {
     requests: 0,
     toolCalls: 0,
@@ -63,12 +93,13 @@ export async function control(
     reasoning: 0,
     cost: 0,
     repairs: 0,
+    ...options.resume?.totals,
   };
   let state: State = 'PENDING',
     reason = '',
     formatErrors = 0;
-  const repaired = new Map<string, number>(),
-    repeated = new Map<string, number>();
+  const repaired = new Map<string, number>();
+  const stuck = stuckDetector();
   function move(event: StateEvent, detail = ''): void {
     const next = transition(state, event);
     appendEvent(options.store, 'state_transition', { from: state, to: next, reason: detail });
@@ -160,20 +191,7 @@ export async function control(
         break;
       }
       if (!boundary(response.toolCalls.length, false)) break;
-      conversation.push({
-        role: 'assistant',
-        content: response.message,
-        ...(response.providerContent ? { providerContent: response.providerContent } : {}),
-        ...(response.toolCalls.length
-          ? {
-              tool_calls: response.toolCalls.map((call) => ({
-                id: call.id,
-                type: 'function' as const,
-                function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-              })),
-            }
-          : {}),
-      });
+      conversation.push(assistantMessage(response));
       if (response.toolCalls.length) {
         let invalid = false;
         for (const call of response.toolCalls) {
@@ -189,24 +207,21 @@ export async function control(
                 ...(options.policy ?? {}),
                 ...toolContext,
               });
-          conversation.push({
-            role: 'tool',
-            content: result.output,
-            tool_call_id: call.id,
-            log: result.log,
-          });
+          conversation.push(toolMessage(call.id, result.output, result.log));
           if (result.aborted !== undefined) {
             move('abort', result.aborted);
             break;
           }
-          if (result.status === 'invalid_args') invalid = true;
-          const hash = createHash('sha256')
-            .update(JSON.stringify([call.name, call.arguments, result.status, result.output]))
-            .digest('hex');
-          const count = (repeated.get(hash) ?? 0) + 1;
-          repeated.set(hash, count);
-          if (count >= 4) {
-            move('stuck', 'Repeated identical action and observation');
+          if (result.status === 'invalid_args') {
+            // Malformed calls have their own consecutive format-error limit.
+            invalid = true;
+            continue;
+          }
+          const looping = stuck(
+            actionEntry(call.name, call.arguments, result.status, result.output),
+          );
+          if (looping) {
+            move('stuck', looping);
             break;
           }
         }
@@ -216,6 +231,11 @@ export async function control(
         continue;
       }
       formatErrors = 0;
+      const monologue = stuck({ kind: 'message' });
+      if (monologue) {
+        move('stuck', monologue);
+        break;
+      }
       move('validate');
       const validation = await options.validate();
       if (!boundary(0, false)) break;
@@ -238,13 +258,7 @@ export async function control(
       }
       totals.repairs++;
       for (const check of failed) repaired.set(check.name, (repaired.get(check.name) ?? 0) + 1);
-      conversation.push({
-        role: 'user',
-        content: untrusted(
-          'sensor',
-          'Visible acceptance checks failed: ' + failed.map((check) => check.name).join(', '),
-        ),
-      });
+      conversation.push(repairMessage(failed.map((check) => check.name)));
       move('repair');
     }
   } catch {

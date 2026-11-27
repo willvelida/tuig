@@ -15,7 +15,7 @@ import { adapterError } from '../../runner/adapter/openai-compat.js';
 import { control, type ValidationResult } from '../../runner/controller.js';
 import type { Message, ToolDefinition } from '../../runner/adapter/types.js';
 import type { ApprovalDecision, ApprovalRequest } from '../../runner/approval.js';
-import type { Budgets } from '../../runner/budgets.js';
+import type { Budgets, Totals } from '../../runner/budgets.js';
 import type { ToolResult } from '../../runner/tools/index.js';
 import { commandFailure, rootAt, showRun } from './run.js';
 export function comparable(value: unknown): unknown {
@@ -89,6 +89,9 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
         next()?.type === 'state_transition' && next()?.data.reason === 'wall'
           ? Number((start.data.budgets as Budgets).wallSeconds) * 1000
           : 0,
+      ...(start.data.resume
+        ? { resume: { conversation: [], totals: (start.data.resume as { totals: Totals }).totals } }
+        : {}),
       start: Object.fromEntries(
         Object.entries(start.data).filter(
           ([key]) => !['endpoint', 'model', 'budgets', 'historyMode'].includes(key),

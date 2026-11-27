@@ -415,7 +415,7 @@ test(
   async (t) => {
     const root = workspace(t);
     // setsid moves sleep into its own session, outside the group; it keeps stdout open.
-    t.after(() => spawnSync('pkill', ['-f', 'sleep 987660']));
+    t.after(() => spawnSync('pkill', ['-f', '^sleep 987660$']));
     const started = Date.now();
     const result = await runProcess(root, ['sh', '-c', 'setsid sleep 987660 & wait'], '.', 300, {
       graceMs: 300,

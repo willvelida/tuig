@@ -9,6 +9,7 @@ Available now:
 - tuig trust: grant user-level repository trust; non-interactive use requires TUIG_TRUST_CI=1.
 - tuig template diff: show differences from embedded templates without applying changes.
 - tuig run <task-id> or tuig run --instruction <text>: run one task in its own worktree (.tuig/temp/worktrees/<id>) on branch tuig/run-<id>, using configured model/replay and trusted visible checks. The main checkout is never modified; the base must be clean.
+- tuig run --resume <id>: continue a cancelled or interrupted run in its worktree. The worktree is restored to the run's last per-turn checkpoint and that turn is asked again, so tool calls that were in flight are re-proposed by the model, never silently re-run. The resumed run gets a new id linked to the original (resumedFrom / resumedAs) and keeps the original's budget counters.
 - tuig runs show <id>: inspect summary, timeline and diff.
 - tuig runs replay <id> --adapter replay: rebuild recorded decisions offline without reexecuting tools/checks.
 - tuig runs cleanup <id>: commit any uncommitted final state onto tuig/run-<id>, then remove the worktree. The branch stays.

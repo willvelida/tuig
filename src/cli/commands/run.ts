@@ -38,7 +38,10 @@ import {
   diffPatch,
   diffStat,
   openWorkspace,
+  restoreCheckpoint,
+  type Workspace,
 } from '../../engine/workspace.js';
+import { resumePoint } from '../../runner/resume.js';
 type Check = { name: string; argv: string[]; timeoutSec?: number };
 type Config = {
   mode: Mode;
@@ -90,6 +93,8 @@ export async function runCommand(options: {
   interactive?: boolean;
   /** Override sandbox detection (tests); null means no sandbox is available. */
   sandbox?: Sandbox | null;
+  /** Continue a cancelled or interrupted run from its last checkpoint. */
+  resume?: string;
 }): Promise<Envelope> {
   let terminal: TerminalIO | null = null;
   try {
@@ -107,8 +112,11 @@ export async function runCommand(options: {
           ? detectSandbox(options.platform ?? process.platform)
           : options.sandbox;
     if (autonomous && !sandbox) throw adapterError('TUIG_E_SANDBOX');
-    let instruction = options.instruction;
-    if (options.taskId) {
+    // Resuming continues the original task; the interrupted turn is rolled back and re-asked.
+    const point = options.resume === undefined ? undefined : resumePoint(root, options.resume);
+    let instruction = point ? point.task.instruction : options.instruction;
+    const taskId = point ? point.task.taskId : (options.taskId ?? null);
+    if (!point && options.taskId) {
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.taskId)) throw adapterError('TUIG_E_USAGE');
       const taskDir = join(resolve(root, config.tasksDir ?? '.tuig/tasks'), options.taskId);
       const task = JSON.parse(readFileSync(join(taskDir, 'task.json'), 'utf8')) as {
@@ -175,11 +183,26 @@ export async function runCommand(options: {
       throw adapterError('TUIG_E_POLICY_DENIED');
     // Each run works in its own worktree; the human's checkout is never touched.
     const id = randomUUID();
-    const workspace = createWorkspace(root, id);
+    let workspace: Workspace;
+    if (point) {
+      workspace = openWorkspace(root, point.workspace.id, point.workspace.base);
+      restoreCheckpoint(workspace, point.checkpoint.ref);
+    } else workspace = createWorkspace(root, id);
     const branch = workspace.branch;
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
     });
+    if (point) {
+      // Link both ways before running, so a crash of the resumed run is itself resumable.
+      const previous = existingRecord(root, point.from);
+      const summary = (readRun(previous).summary ?? {}) as Record<string, unknown>;
+      writeSummary(previous, {
+        ...summary,
+        id: point.from,
+        state: summary.state ?? point.previous,
+        resumedAs: id,
+      });
+    }
     terminal = options.approver || options.interactive === false ? null : openTerminal();
     const approver =
       options.approver ??
@@ -195,10 +218,24 @@ export async function runCommand(options: {
       root: workspace.path,
       store,
       start: {
-        workspace: { branch, base: workspace.base },
+        workspace: { id: workspace.id, branch, base: workspace.base },
         mode: config.mode,
         sandbox: sandbox?.kind ?? 'none',
+        task: { taskId, instruction },
+        ...(point
+          ? {
+              resume: {
+                from: point.from,
+                previous: point.previous,
+                turn: point.turn,
+                checkpoint: point.checkpoint,
+                discarded: point.discarded,
+                totals: point.totals,
+              },
+            }
+          : {}),
       },
+      ...(point ? { resume: { conversation: point.conversation, totals: point.totals } } : {}),
       policy: {
         mode: config.mode,
         rules: config.policy?.rules ?? [],
@@ -236,7 +273,13 @@ export async function runCommand(options: {
     writeArtifact(store, 'diff.patch', diffPatch(workspace));
     const summary = readRun(store).summary as Record<string, unknown>;
     const location = { branch, base: workspace.base, worktree: workspace.path };
-    writeSummary(store, { ...summary, id, ...location, taskId: options.taskId ?? null });
+    writeSummary(store, {
+      ...summary,
+      id,
+      ...location,
+      taskId,
+      ...(point ? { resumedFrom: point.from } : {}),
+    });
     const data = { id, ...location, ...result };
     return result.state === 'SUCCEEDED'
       ? envelope('run', data, { status: 'ok' })
@@ -260,9 +303,10 @@ export function cleanupRun(id: string, cwd = process.cwd()): Envelope {
     const root = rootAt(cwd);
     trusted(root);
     const start = readRun(existingRecord(root, id)).events.find((e) => e.type === 'run_start');
-    const recorded = start?.data.workspace as { base?: unknown } | undefined;
+    const recorded = start?.data.workspace as { id?: unknown; base?: unknown } | undefined;
     if (typeof recorded?.base !== 'string') throw adapterError('TUIG_E_WORKSPACE');
-    const result = cleanupWorkspace(openWorkspace(root, id, recorded.base));
+    const workspaceId = typeof recorded.id === 'string' ? recorded.id : id;
+    const result = cleanupWorkspace(openWorkspace(root, workspaceId, recorded.base));
     return envelope('runs cleanup', { id, ...result }, { status: 'ok' });
   } catch (error) {
     return commandFailure('runs cleanup', error);

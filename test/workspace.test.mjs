@@ -388,7 +388,11 @@ test('checkpoints land on shadow refs per turn without touching the agent index;
     status,
     'checkpoint changed the agent index',
   );
+  // The same state reuses the ref (resume); different content never overwrites it.
+  assert.equal(checkpoint(ws, 0).commit, first.commit);
+  writeFileSync(join(ws.path, 'later.txt'), 'later\n');
   assert.throws(() => checkpoint(ws, 0), 'a checkpoint ref is never overwritten');
+  rmSync(join(ws.path, 'later.txt'));
   assert.equal(checkpoint(ws, 1).ref, 'refs/tuig/checkpoints/shadow/1');
   const patch = diffPatch(ws);
   assert.match(patch, /\+fixed/);

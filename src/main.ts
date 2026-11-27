@@ -31,12 +31,15 @@ if (process.exitCode === undefined) {
         help: { type: 'boolean' },
         'write-agents-md': { type: 'boolean' },
         instruction: { type: 'string' },
+        resume: { type: 'string' },
         adapter: { type: 'string' },
       },
     });
     const [verb, operation, topic] = positionals;
     if (values.instruction !== undefined && verb !== 'run')
       throw new Error('--instruction is only valid with run.');
+    if (values.resume !== undefined && (verb !== 'run' || values.instruction !== undefined))
+      throw new Error('--resume is only valid with run, without a task or --instruction.');
     if (values.adapter !== undefined && !(verb === 'runs' && operation === 'replay'))
       throw new Error('--adapter is only valid with runs replay.');
     if (values['write-agents-md'] && verb !== 'init')
@@ -51,7 +54,7 @@ if (process.exitCode === undefined) {
             {
               usage:
                 CLI_NAME +
-                ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | runs show <id> | runs replay <id> --adapter replay | runs cleanup <id>]',
+                ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | run --resume <id> | runs show <id> | runs replay <id> --adapter replay | runs cleanup <id>]',
             },
             { status: 'ok' },
           );
@@ -133,14 +136,19 @@ if (process.exitCode === undefined) {
       }
     } else if (
       verb === 'run' &&
-      ((values.instruction !== undefined && positionals.length === 1) ||
-        (values.instruction === undefined && positionals.length === 2))
+      ((values.resume !== undefined && positionals.length === 1) ||
+        (values.instruction !== undefined && positionals.length === 1) ||
+        (values.resume === undefined &&
+          values.instruction === undefined &&
+          positionals.length === 2))
     ) {
       const { runCommand } = await import('./cli/commands/run.js');
       result = await runCommand(
-        values.instruction !== undefined
-          ? { instruction: values.instruction }
-          : { taskId: operation! },
+        values.resume !== undefined
+          ? { resume: values.resume }
+          : values.instruction !== undefined
+            ? { instruction: values.instruction }
+            : { taskId: operation! },
       );
     } else if (verb === 'runs' && operation === 'cleanup' && topic && positionals.length === 3) {
       const { cleanupRun } = await import('./cli/commands/run.js');

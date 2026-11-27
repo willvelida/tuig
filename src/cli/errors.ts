@@ -5,6 +5,10 @@ export const ERRORS = {
     message: 'Run base has uncommitted changes.',
     fix: 'Review and commit or otherwise preserve your changes before starting a run.',
   },
+  TUIG_E_RESUME: {
+    message: 'Run cannot be resumed.',
+    fix: 'Resume only cancelled or interrupted runs that have a checkpoint and were not resumed already; inspect with tuig runs show <id>.',
+  },
   TUIG_E_SANDBOX: {
     message: 'A working OS sandbox is required for this mode but none is available.',
     fix: 'Install bubblewrap (Linux) or use sandbox-exec (macOS), confirm with tuig doctor, or use mode ask.',

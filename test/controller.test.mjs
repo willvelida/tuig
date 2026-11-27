@@ -86,7 +86,11 @@ test('all terminal states reachable with replay, and run_end/summary match host 
     ['SUCCEEDED', [answer()], {}],
     [
       'FAILED_VALIDATION',
-      [answer(), answer(), answer(), answer()],
+      // Each repair attempt does some work first; tool-less replies in a row are a monologue.
+      Array.from({ length: 4 }, () => [
+        answer([call('read_file', { path: 'a.txt' })]),
+        answer(),
+      ]).flat(),
       { validate: async () => ({ checks: [{ name: 'test', passed: false }] }) },
     ],
     ['ABORTED_BY_AGENT', [answer([call('abort_with_reason', { reason: 'impossible' })])], {}],
@@ -145,7 +149,10 @@ test('format errors terminate, repairs are bounded per check and globally, empty
   assert.equal((await control(f.options)).state, 'ERROR');
   f = fixture(
     t,
-    Array.from({ length: 10 }, () => answer()),
+    Array.from({ length: 10 }, () => [
+      answer([call('read_file', { path: 'a.txt' })]),
+      answer(),
+    ]).flat(),
   );
   let i = 0;
   const result = await control({

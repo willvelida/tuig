@@ -112,6 +112,17 @@ export function checkpoint(
   const tree = snapshotTree(workspace);
   const head = gitOutput(['rev-parse', '--verify', 'HEAD^{commit}'], workspace.path);
   const ref = checkpointRef(workspace.id, turn);
+  const existing = runGit(['rev-parse', '--verify', '--quiet', ref + '^{commit}'], workspace.path);
+  if (existing.status === 0) {
+    // A resumed run re-enters the turn it was restored to; the same state reuses the ref.
+    const commit = existing.stdout.trim();
+    if (gitOutput(['rev-parse', commit + '^{tree}'], workspace.path) === tree)
+      return { ref, commit, tree };
+    throw codedError(
+      'TUIG_E_WORKSPACE',
+      'Checkpoint ' + ref + ' already exists with other content.',
+    );
+  }
   const commit = gitOutput(
     ['commit-tree', tree, '-p', head, '-m', 'tuig checkpoint ' + workspace.id + ' turn ' + turn],
     workspace.path,
@@ -160,4 +171,40 @@ export function diffStat(workspace: Workspace): string {
     ['diff', '--shortstat', '--no-color', '--no-ext-diff', '--no-textconv', workspace.base, tree],
     workspace.path,
   );
+}
+
+/**
+ * Put the worktree back to a checkpoint: the run branch and index return to
+ * the commit the checkpoint was taken on, and the files to the checkpoint's
+ * tree. Files added since are removed; ignored files are left alone.
+ */
+export function restoreCheckpoint(
+  workspace: Workspace,
+  ref: string,
+): { commit: string; tree: string } {
+  const commit = gitOutput(['rev-parse', '--verify', ref + '^{commit}'], workspace.path);
+  const tree = gitOutput(['rev-parse', commit + '^{tree}'], workspace.path);
+  const parent = gitOutput(['rev-parse', '--verify', commit + '^1'], workspace.path);
+  const current = snapshotTree(workspace);
+  const added = runGit(
+    ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', tree, current],
+    workspace.path,
+  );
+  if (added.error || added.status !== 0)
+    throw new Error('Cannot compare worktree with checkpoint.');
+  for (const path of added.stdout.split('\0').filter(Boolean))
+    rmSync(join(workspace.path, path), { force: true });
+  gitOutput(['update-ref', 'refs/heads/' + workspace.branch, parent], workspace.path);
+  gitOutput(['read-tree', parent], workspace.path);
+  const directory = mkdtempSync(join(tmpdir(), 'tuig-restore-'));
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: join(directory, 'index') };
+    gitOutput(['read-tree', tree], workspace.path, { env });
+    gitOutput(['checkout-index', '--all', '--force'], workspace.path, { env });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  if (snapshotTree(workspace) !== tree)
+    throw codedError('TUIG_E_WORKSPACE', 'Restored worktree does not match ' + ref + '.');
+  return { commit, tree };
 }
