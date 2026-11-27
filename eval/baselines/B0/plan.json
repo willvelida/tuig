@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "status": "awaiting-human-review-model-and-runtime",
+  "fixtureVersion": "ledger-lite-v1",
+  "tasks": [
+    "fix-rounding",
+    "fix-minor-units",
+    "fix-currency-format"
+  ],
+  "repetitions": 5,
+  "model": null,
+  "runtime": null,
+  "results": []
+}

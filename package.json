@@ -31,7 +31,8 @@
     "test": "npm run build && node --test test/*.test.mjs",
     "build:binary": "node scripts/bundle-docs.mjs && node scripts/bundle-templates.mjs && bun build --compile src/main.ts --outfile bin/tuig",
     "docs:errors": "npm run build && node scripts/error-docs.mjs",
-    "docs:check": "npm run build && node scripts/error-docs.mjs --check"
+    "docs:check": "npm run build && node scripts/error-docs.mjs --check",
+    "fixtures:check": "node scripts/check-fixtures.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.4",

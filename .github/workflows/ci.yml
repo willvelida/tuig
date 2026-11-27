@@ -19,5 +19,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run docs:check
+      - run: npm run fixtures:check
       - run: npm run build:binary
       - run: node scripts/smoke-binary.mjs
