@@ -1,0 +1,35 @@
+{
+  "state": "SUCCEEDED",
+  "reason": "",
+  "totals": {
+    "requests": 5,
+    "toolCalls": 6,
+    "input": 19747,
+    "cached": 0,
+    "output": 1562,
+    "reasoning": 0,
+    "cost": 0.11022799999999999,
+    "repairs": 0,
+    "cacheWrite5m": 0,
+    "cacheWrite1h": 0,
+    "reasoningKnown": false
+  },
+  "endpoint": "https://api.anthropic.com/v1/messages",
+  "model": "claude-opus-5-5",
+  "durationMs": 23070.376747000002,
+  "claims": [
+    {
+      "claim": "Terminal state and recorded counters",
+      "grade": "deterministic"
+    },
+    {
+      "claim": "Task requirements are sufficient",
+      "grade": "human-judgement"
+    }
+  ],
+  "schema_version": 1,
+  "limitations": "Passing validation does not prove requirements were right, tests were sufficient, or code is secure.",
+  "id": "74b48168-ee6a-43d8-b26f-7aca4061e337",
+  "branch": "tuig/run-74b48168-ee6a-43d8-b26f-7aca4061e337",
+  "taskId": "fix-currency-format"
+}

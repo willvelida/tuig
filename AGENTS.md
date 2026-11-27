@@ -22,6 +22,6 @@ Run npm run lint, npm run typecheck, npm test and npm run docs:check before comm
 
 PROGRESS.md, progress/ and TUIG_IMPLEMENTATION_GUIDE.md are local planning files. Update when present; do not commit them.
 
-Do not use unreviewed benchmark tasks. Podman oracle isolation is verified. Actual hosted B0 measurement remains pending; passing Node or local-stub workflow tests is not model baseline evidence.
+Do not use unreviewed benchmark tasks. Podman oracle isolation is verified. Hosted B0 is frozen under eval/baselines/B0/: 15/15 hidden checks and replays pass. Preserve its records and approved oracle pins; new experiments need a new baseline version. Stage 2 still requires human checkpoint approval.
 
 Native Anthropic support extends decision 3 (ADR 0027). Preserve signed thinking and append-only native history. Podman fixture setup/verification/measurement scripts are in scripts/stage1* and scripts/*stage1*.mjs; credential values must never enter files or command arguments.

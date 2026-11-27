@@ -1,18 +1,14 @@
-# B0 baseline - not measured
+# B0 baseline - measured and frozen
 
-Status: oracles approved and verified; native adapter and isolated Podman runtime prepared. Actual hosted B0 measurement awaits credential availability.
+Completed 2026-11-27 using claude-opus-5-5 through the approved native Anthropic Messages endpoint. Frozen implementation: 451cdafbb82f63d298c3c55c97afe4c2840ffc6f. Rootless Podman/Ubuntu WSL image and token prices are recorded in the dataset.
 
-Do not interpret the implementation's offline replay integration tests as model benchmark results. Five independent runs are planned for each of fix-rounding, fix-minor-units and fix-currency-format. Save per-run artifacts, hidden verdicts, token subtotals, cost, latency and tool calls here only after actual execution. Freeze the baseline only after all required measurements and replay verification are complete.
+- 15 hosted runs: five per human-approved synthetic task. All 15 passed hidden checks and verified replay.
+- Estimated cost: $1.966016 at the approved standard rates; 340,294 input and 30,242 output tokens.
+- [Report, metrics and deviations](report.md), [aggregate summary](summary.json), [individual results](results.json), [demo transcript](demo-transcript.md).
+- Full redacted records, diffs, tool logs and host-only hidden logs are in runs/. SHA256SUMS.json inventories the artifacts.
+- verification.json is oracle/runtime evidence; pipeline-verification.json is local-stub workflow evidence. Neither is a hosted model measurement.
+- results.partial.json is retained as the final incremental snapshot; results.json is the finalized dataset.
 
-Review proposal: fixtures/ORACLE_REVIEW.md. The Stage 1 checkpoint has not been passed.
+The measurement command refuses to replace this frozen baseline. Credentials were supplied only through the authenticated WSL process environment; settings.json contains the variable name, never its value.
 
-Approved setup: native Anthropic Messages, claude-opus-5-5, standard rates in settings.json; rootless Podman under Ubuntu WSL. Oracle/reference/isolation verification is complete; verification.json is not a model baseline.
-
-From an authenticated Ubuntu shell in this repository, after npm build:
-
-```sh
-sh scripts/stage1-node.sh scripts/verify-stage1-fixtures.mjs
-sh scripts/stage1-node.sh scripts/measure-stage1-b0.mjs --measure
-```
-
-Export CLAUDE_ACCESS_TOKEN in that same shell before the measurement command. Do not put the secret in repository files or command arguments. A shell-local export in another terminal is not inherited by new WSL processes. The measurement script records five runs per task, verifies offline replay, evaluates hidden tests only after each run is terminal, and refuses to replace existing result files.
+Stage 1 implementation is complete. The human checkpoint remains open before Stage 2.

@@ -1,0 +1,19 @@
+diff --git a/ledger_lite/amounts.py b/ledger_lite/amounts.py
+index 34413f3..44b6d6b 100644
+--- a/ledger_lite/amounts.py
++++ b/ledger_lite/amounts.py
+@@ -1,5 +1,12 @@
+-from ._decimal import MoneyInput, as_decimal
++from ._decimal import MoneyInput
++from .rounding import round_amount
+ 
+ 
+ def to_minor_units(amount: MoneyInput) -> int:
+-    return int(as_decimal(amount)) * 100
++    """Convert an amount to integer minor units (cents).
++
++    The amount is first rounded to two places with the library's
++    ties-to-even rounding, then scaled exactly by 10**2.
++    """
++    rounded = round_amount(amount)
++    return int(rounded.scaleb(2))

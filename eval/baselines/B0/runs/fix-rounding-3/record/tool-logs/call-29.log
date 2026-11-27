@@ -1,0 +1,13 @@
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+
+from ._decimal import MoneyInput, as_decimal
+
+_CENT = Decimal("0.01")
+
+
+def round_amount(amount: MoneyInput) -> Decimal:
+    value = as_decimal(amount)
+    with localcontext() as ctx:
+        # Ensure enough precision so quantize never fails for large values.
+        ctx.prec = max(28, value.adjusted() + 4)
+        return value.quantize(_CENT, rounding=ROUND_HALF_EVEN)

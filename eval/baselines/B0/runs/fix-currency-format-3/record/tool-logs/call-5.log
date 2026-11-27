@@ -1,0 +1,1 @@
+./ledger_lite/formatting.py:7:def format_money(amount: MoneyInput, currency: str = "USD") -> str:

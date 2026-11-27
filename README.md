@@ -14,7 +14,7 @@ tuig --version
 tuig --help
 ```
 
-Help, version, built-in docs and read-only diagnostics are implemented; npm releases are planned.
+Help, version, built-in docs, diagnostics, initialization/trust, task runs and verified replay are implemented; npm releases are planned.
 
 ## Development
 
@@ -40,8 +40,8 @@ Doctor reports Node/Bun versions, Git, ripgrep, platform sandbox availability, i
 
 On macOS or Linux/WSL2, initialize and trust a synthetic consumer repository, configure its model and visible checks, and commit the base. Run `tuig run --instruction "Fix the documented bug"` or a reviewed named task with `tuig run <task-id>`. Inspect the returned ID with `tuig runs show <id>`, then verify its decisions offline with `tuig runs replay <id> --adapter replay`. Replay does not execute recorded commands or edits.
 
-Read `tuig docs get configuration` for local, hosted and offline model configuration. Hosted development calls require explicit approval and synthetic fixtures. B0 measurements are pending human oracle review and model selection.
+Read `tuig docs get configuration` for local, hosted and offline model configuration. Hosted development calls require explicit approval and synthetic fixtures. The [frozen B0 report](eval/baselines/B0/report.md) records 15 hosted runs, all passing hidden checks and replay.
 
-The three benchmark task proposals are ready for [human oracle review](fixtures/ORACLE_REVIEW.md). `npm run fixtures:check` validates metadata and pinned hashes without running the Python oracles. Step 1.11 and the Stage 1 checkpoint remain incomplete until review, isolated execution and B0 measurements pass.
+The three benchmark oracles have [human approval](fixtures/ORACLE_REVIEW.md). `npm run fixtures:check` validates metadata and pinned hashes. Step 1.11 is complete; the Stage 1 checkpoint report awaits human approval before Stage 2.
 
 Native Anthropic Messages is supported alongside compatible endpoints and replay. The approved Stage 1 configuration is in `eval/baselines/B0/settings.json` and stores only the credential variable name. Rootless Podman setup is reproducible with `sh scripts/prepare-stage1-wsl.sh`; see the [B0 instructions](eval/baselines/B0/README.md) for verification and measurement. Signed native history is preserved without masking.
