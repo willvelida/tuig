@@ -1,6 +1,8 @@
 import { CLI_NAME } from './name.js';
 
 export const ERRORS = {
+  TUIG_E_DIRTY: {message:'Run base has uncommitted changes.',fix:'Review and commit or otherwise preserve your changes before starting a run.'},
+  TUIG_E_ORACLE_REVIEW: {message:'Task oracle has not been reviewed.',fix:'Have the human review the oracle and record oracleReviewed: true before using this task.'},
   TUIG_E_EGRESS_DENIED: {message:'Model endpoint is not allow-listed.',fix:'Review and add the exact base URL to models.allowedEndpoints, or use a local endpoint.'},
   TUIG_E_MODEL_FORMAT: {message:'Invalid model response format.',fix:'Check the model server supports chat completions, tool calls and token usage.'},
   TUIG_E_MODEL_HTTP: {message:'Model HTTP request failed.',fix:'Check model endpoint availability and credentials; retry only after review.'},
