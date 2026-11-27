@@ -1,0 +1,11 @@
+diff --git a/ledger_lite/formatting.py b/ledger_lite/formatting.py
+index 4f04938..5695fbf 100644
+--- a/ledger_lite/formatting.py
++++ b/ledger_lite/formatting.py
+@@ -9,4 +9,5 @@ def format_money(amount: MoneyInput, currency: str = "USD") -> str:
+     if currency not in SYMBOLS:
+         raise ValueError("unsupported currency")
+     rounded = round_amount(amount)
+-    return f"{SYMBOLS[currency]}{rounded:.2f}"
++    sign = "-" if rounded < 0 else ""
++    return f"{sign}{SYMBOLS[currency]}{abs(rounded):.2f}"

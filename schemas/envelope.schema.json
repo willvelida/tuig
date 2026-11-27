@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tuig result envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unconfigured",
+        "error"
+      ]
+    },
+    "data": {},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "fix"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "TUIG_E_DIRTY",
+            "TUIG_E_ORACLE_REVIEW",
+            "TUIG_E_EGRESS_DENIED",
+            "TUIG_E_MODEL_FORMAT",
+            "TUIG_E_MODEL_HTTP",
+            "TUIG_E_REPLAY",
+            "TUIG_E_CONFIG",
+            "TUIG_E_PREREQUISITE",
+            "TUIG_E_DOC_TOPIC",
+            "TUIG_E_USAGE",
+            "TUIG_E_OUTPUT",
+            "TUIG_E_UNCONFIGURED",
+            "TUIG_E_UNTRUSTED",
+            "TUIG_E_POLICY_DENIED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "fix": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "next_action": {
+      "type": "string",
+      "pattern": "\\S"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": false
+        }
+      },
+      "else": {
+        "properties": {
+          "next_action": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "next_action"
+        ]
+      }
+    }
+  ]
+}

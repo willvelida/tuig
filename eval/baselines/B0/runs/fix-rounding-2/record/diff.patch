@@ -1,0 +1,23 @@
+diff --git a/ledger_lite/rounding.py b/ledger_lite/rounding.py
+index 94830aa..05f335b 100644
+--- a/ledger_lite/rounding.py
++++ b/ledger_lite/rounding.py
+@@ -1,7 +1,16 @@
+-from decimal import Decimal
++from decimal import ROUND_HALF_EVEN, Context, Decimal
+ 
+ from ._decimal import MoneyInput, as_decimal
+ 
++_CENT = Decimal("0.01")
++
+ 
+ def round_amount(amount: MoneyInput) -> Decimal:
+-    return Decimal(str(round(float(as_decimal(amount)), 2)))
++    value = as_decimal(amount)
++    # Use a local context with enough precision so large values never
++    # raise InvalidOperation during quantize.
++    digits = len(value.as_tuple().digits)
++    exponent = value.as_tuple().exponent
++    precision = max(28, digits + max(0, int(exponent) + 2) + 2)
++    context = Context(prec=precision, rounding=ROUND_HALF_EVEN)
++    return value.quantize(_CENT, rounding=ROUND_HALF_EVEN, context=context)

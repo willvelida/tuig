@@ -1,0 +1,47 @@
+{
+  "name": "tuig",
+  "version": "0.1.0",
+  "description": "A starter kit for coding harnesses.",
+  "type": "module",
+  "bin": {
+    "tuig": "dist/main.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/willvelida/tuig.git"
+  },
+  "bugs": {
+    "url": "https://github.com/willvelida/tuig/issues"
+  },
+  "homepage": "https://github.com/willvelida/tuig#readme",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "node scripts/bundle-docs.mjs && node scripts/bundle-templates.mjs && tsc",
+    "lint": "eslint .",
+    "typecheck": "node scripts/bundle-docs.mjs && node scripts/bundle-templates.mjs && tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "build:binary": "node scripts/bundle-docs.mjs && node scripts/bundle-templates.mjs && bun build --compile src/main.ts --outfile bin/tuig",
+    "docs:errors": "npm run build && node scripts/error-docs.mjs",
+    "docs:check": "npm run build && node scripts/error-docs.mjs --check",
+    "fixtures:check": "node scripts/check-fixtures.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.4",
+    "bun": "1.4.5",
+    "eslint": "10.15.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.74.0"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  }
+}

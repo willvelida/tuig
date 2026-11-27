@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tuig summary v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "limitations",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "limitations": {
+      "type": "string",
+      "minLength": 1
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "claim",
+          "grade"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "grade": {
+            "enum": [
+              "deterministic",
+              "inferential",
+              "human-judgement"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

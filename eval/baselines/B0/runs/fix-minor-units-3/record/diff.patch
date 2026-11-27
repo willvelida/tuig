@@ -1,0 +1,18 @@
+diff --git a/ledger_lite/amounts.py b/ledger_lite/amounts.py
+index 34413f3..a380b01 100644
+--- a/ledger_lite/amounts.py
++++ b/ledger_lite/amounts.py
+@@ -1,5 +1,11 @@
+-from ._decimal import MoneyInput, as_decimal
++from ._decimal import MoneyInput
++from .rounding import round_amount
+ 
+ 
+ def to_minor_units(amount: MoneyInput) -> int:
+-    return int(as_decimal(amount)) * 100
++    rounded = round_amount(amount)
++    sign, digits, exponent = rounded.as_tuple()
++    coefficient = int("".join(map(str, digits)) or "0")
++    shift = exponent + 2
++    value = coefficient * 10**shift if shift >= 0 else coefficient // 10**-shift
++    return -value if sign else value

@@ -1,0 +1,23 @@
+{
+  "id": "fix-rounding",
+  "type": "bug-fix",
+  "fixtureVersion": "ledger-lite-v1",
+  "oracleReviewed": true,
+  "oracle": {
+    "framework": "pytest",
+    "visible": "tests-visible/test_regression.py",
+    "hidden": "tests-hidden/test_oracle.py",
+    "reference": "solution/ledger_lite/rounding.py",
+    "sha256": {
+      "visible": "68798b7f9e0c792609f195bb8e7b3b130e3f113825162b574162aa7fe29a0772",
+      "hidden": "46fb57431568099d4b1abf3182e337aa439bb07eb23bd33f7f23cbd177122b9b",
+      "reference": "662f952f6464df5ab82eb8be4dfbc4fdf64a9c91256a37370ec742a3a5691c31"
+    }
+  },
+  "timeouts": {
+    "setupSec": 10,
+    "visibleSec": 30,
+    "hiddenSec": 30,
+    "runSec": 3600
+  }
+}

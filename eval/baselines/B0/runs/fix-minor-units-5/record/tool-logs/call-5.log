@@ -1,0 +1,8 @@
+./ledger_lite/_decimal.py:6:def as_decimal(amount: MoneyInput) -> Decimal:
+./ledger_lite/formatting.py:7:def format_money(amount: MoneyInput, currency: str = "USD") -> str:
+./ledger_lite/rounding.py:1:from decimal import ROUND_HALF_EVEN, Decimal
+./ledger_lite/rounding.py:6:def round_amount(amount: MoneyInput) -> Decimal:
+./ledger_lite/rounding.py:8:    return as_decimal(amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+./README.md:3:A tiny invented Python money library. It is not a financial product. Inputs are finite Decimal, decimal strings or integers. Amounts use two decimal places with ROUND_HALF_EVEN (ties-to-even). Minor units are integer cents after that rounding. Formatting supports USD, EUR and GBP, places a negative sign before the symbol, and normalizes a rounded negative zero to an unsigned zero.
+./ledger_lite/amounts.py:4:def to_minor_units(amount: MoneyInput) -> int:
+./tests-visible/test_regression.py:4:def test_fractional_minor_units_regression():

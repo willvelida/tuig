@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "benchmark": "B0",
+  "sourceCommit": "451cdafbb82f63d298c3c55c97afe4c2840ffc6f",
+  "model": "claude-opus-5-5",
+  "endpoint": "https://api.anthropic.com/v1/messages",
+  "runtimeImage": "7c9c9de9ffbe50030f6cc163bad0bdb2f19c4987d9f7dd79f0e4300c94965e55",
+  "sample": {
+    "tasks": 3,
+    "runsPerTask": 5,
+    "runs": 15
+  },
+  "runs": 15,
+  "hiddenPassed": 15,
+  "requests": 83,
+  "toolCalls": 115,
+  "input": 340294,
+  "cached": 0,
+  "cacheWrite5m": 0,
+  "cacheWrite1h": 0,
+  "output": 30242,
+  "cost": 1.966016,
+  "modelLatencySeconds": 323.81373784200025,
+  "reasoningTokens": null,
+  "meanModelLatencySeconds": 21.587582522800016,
+  "medianModelLatencySeconds": 20.52037958400004,
+  "p95ModelLatencySeconds": 36.02399554600002,
+  "tasks": [
+    {
+      "task": "fix-currency-format",
+      "runs": 5,
+      "hiddenPassed": 5,
+      "visibleSucceeded": 5,
+      "cost": 0.542904,
+      "meanModelLatencySeconds": 16.575733561000007,
+      "toolCalls": 31
+    },
+    {
+      "task": "fix-minor-units",
+      "runs": 5,
+      "hiddenPassed": 5,
+      "visibleSucceeded": 5,
+      "cost": 0.607356,
+      "meanModelLatencySeconds": 21.261984140800013,
+      "toolCalls": 36
+    },
+    {
+      "task": "fix-rounding",
+      "runs": 5,
+      "hiddenPassed": 5,
+      "visibleSucceeded": 5,
+      "cost": 0.8157559999999999,
+      "meanModelLatencySeconds": 26.925029866600024,
+      "toolCalls": 48
+    }
+  ],
+  "audit": {
+    "eventsValidated": 516,
+    "summariesValidated": 15,
+    "expectedDiffPathsOnly": true,
+    "costMathVerified": true,
+    "modelRequestsAndToolCountsVerified": true,
+    "allReplayVerified": true
+  }
+}

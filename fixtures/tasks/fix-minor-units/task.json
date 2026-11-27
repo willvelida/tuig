@@ -1,0 +1,23 @@
+{
+  "id": "fix-minor-units",
+  "type": "bug-fix",
+  "fixtureVersion": "ledger-lite-v1",
+  "oracleReviewed": true,
+  "oracle": {
+    "framework": "pytest",
+    "visible": "tests-visible/test_regression.py",
+    "hidden": "tests-hidden/test_oracle.py",
+    "reference": "solution/ledger_lite/amounts.py",
+    "sha256": {
+      "visible": "d4f9da37f87411c72f7a0a3a192e06c56f1bff3fa2d41ecb48c8686693b65638",
+      "hidden": "0faf45ab03efbce2e38aeb89d0f5dfc567f7cb3912dfbb176b721aa214222e4d",
+      "reference": "973576ae69dc7e2bbae557b98dcdfb084d162c1c6c40ba7a0dd4c526cd450310"
+    }
+  },
+  "timeouts": {
+    "setupSec": 10,
+    "visibleSec": 30,
+    "hiddenSec": 30,
+    "runSec": 3600
+  }
+}
