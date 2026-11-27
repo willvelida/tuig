@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "local-stub-workflow-verification",
+  "isModelBaseline": false,
+  "runtimeImage": "7c9c9de9ffbe50030f6cc163bad0bdb2f19c4987d9f7dd79f0e4300c94965e55",
+  "tasks": 3,
+  "repetitionsPerTask": 5,
+  "completedWorkflowRuns": 15,
+  "localStubRequests": 30,
+  "allHiddenPassed": true,
+  "allReplayVerified": true,
+  "note": "Deterministic reference edits from a local mock server. These are not hosted-model or B0 measurements."
+}

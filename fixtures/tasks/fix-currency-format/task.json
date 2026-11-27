@@ -2,7 +2,7 @@
   "id": "fix-currency-format",
   "type": "bug-fix",
   "fixtureVersion": "ledger-lite-v1",
-  "oracleReviewed": false,
+  "oracleReviewed": true,
   "oracle": {
     "framework": "pytest",
     "visible": "tests-visible/test_regression.py",

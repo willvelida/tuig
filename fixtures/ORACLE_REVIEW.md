@@ -1,6 +1,6 @@
-# Stage 1 oracle review (pending)
+# Stage 1 oracle review (approved 2026-11-27)
 
-All three task.json files deliberately set oracleReviewed: false. Do not use these tasks, run their reference/hidden oracles, or collect B0 results until the human approves. This is a review proposal, not measured evidence.
+The human approved all three pinned oracles on 2026-11-27. All task.json files now record oracleReviewed: true; oracle/reference bytes are unchanged. Approved reference and isolation verification is recorded in eval/baselines/B0/verification.json. Model B0 measurements remain pending.
 
 | Task | Proposed contract | Visible regression | Hidden coverage |
 |---|---|---|---|
@@ -14,4 +14,6 @@ The independent tasks share a correct base library. A setup copies only its bug 
 
 B0 plan: five independent runs per task, using the same selected model and frozen settings. Record hidden pass, input/cached/output/reasoning tokens, latency, cost and tool calls per run, plus the demo transcript and replay comparison. No baseline results exist yet.
 
-Open decisions: approve the task semantics/oracles; choose the actual model endpoint/model/prices (hosted calls need explicit fixture-only approval); choose a supported isolated execution environment. Existing Ubuntu WSL lacks Node; Docker Desktop's engine is not running. No platform setup, image pulls or model calls have been performed.
+Resolved: the human approved all oracles, native Anthropic Messages with claude-opus-5-5 and supplied standard rates, and Podman/WSL setup. Rootless Podman, Node 24 and ripgrep are prepared. Actual hosted calls still await the credential in the invoking WSL shell.
+
+Podman/WSL verification now passes: each bug fails visible and hidden tests, every reference passes both and Ruff, and agent containers cannot see host oracle paths or the API credential. Node 24/ripgrep tooling is prepared locally; the pre-existing interrupted system dpkg state was not changed. Native Anthropic support was approved separately. The remaining gate is credential availability for actual hosted B0 measurement.
