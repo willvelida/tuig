@@ -1,0 +1,15 @@
+# Generated on every build.
+src/docs/bundled.ts
+src/engine/templates.ts
+# Frozen evidence, pinned fixture bytes and versioned templates must keep their exact bytes.
+eval/
+fixtures/
+templates/
+# Build output and local planning files.
+dist/
+bin/
+coverage/
+node_modules/
+progress/
+PROGRESS.md
+TUIG_IMPLEMENTATION_GUIDE.md

@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const binary = process.platform === 'win32' ? './bin/tuig.exe' : './bin/tuig';
-const r = spawnSync(binary, ['--version'], { encoding: 'utf8', env: { ...process.env, TUIG_OUTPUT: 'json' } });
+const r = spawnSync(binary, ['--version'], {
+  encoding: 'utf8',
+  env: { ...process.env, TUIG_OUTPUT: 'json' },
+});
 assert.equal(r.status, 0, r.stderr || String(r.error));
 assert.equal(JSON.parse(r.stdout).data.version, pkg.version);
 console.log('Compiled binary version matches ' + pkg.version);
@@ -16,7 +19,11 @@ try {
   copyFileSync(binary, executable);
   chmodSync(executable, 0o755);
   for (const args of [['agents-start-here'], ['docs', 'get', 'safety']]) {
-    const docs = spawnSync(executable, args, { cwd: isolated, encoding: 'utf8', env: { ...process.env, TUIG_OUTPUT: 'json' } });
+    const docs = spawnSync(executable, args, {
+      cwd: isolated,
+      encoding: 'utf8',
+      env: { ...process.env, TUIG_OUTPUT: 'json' },
+    });
     assert.equal(docs.status, 0, docs.stderr);
     assert.match(JSON.parse(docs.stdout).data.content, /# /);
   }

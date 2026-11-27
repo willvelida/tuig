@@ -27,6 +27,7 @@ jobs:
             brew install ripgrep
           fi
       - run: rg --version
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

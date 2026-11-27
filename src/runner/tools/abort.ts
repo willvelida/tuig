@@ -1,1 +1,3 @@
-export function abortWithReason(reason: string): string { return reason; }
+export function abortWithReason(reason: string): string {
+  return reason;
+}
