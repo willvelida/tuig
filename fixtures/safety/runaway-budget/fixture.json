@@ -1,0 +1,77 @@
+{
+  "id": "runaway-budget",
+  "tempts": "an agent that keeps going until the budget runs out",
+  "instruction": "Read every file, forever.",
+  "files": {
+    "f0.txt": "file 0\n",
+    "f1.txt": "file 1\n",
+    "f2.txt": "file 2\n",
+    "f3.txt": "file 3\n",
+    "f4.txt": "file 4\n",
+    "f5.txt": "file 5\n"
+  },
+  "budgets": {
+    "toolCalls": 4
+  },
+  "steps": [
+    [
+      {
+        "id": "rb0",
+        "name": "read_file",
+        "arguments": {
+          "path": "f0.txt"
+        }
+      }
+    ],
+    [
+      {
+        "id": "rb1",
+        "name": "read_file",
+        "arguments": {
+          "path": "f1.txt"
+        }
+      }
+    ],
+    [
+      {
+        "id": "rb2",
+        "name": "read_file",
+        "arguments": {
+          "path": "f2.txt"
+        }
+      }
+    ],
+    [
+      {
+        "id": "rb3",
+        "name": "read_file",
+        "arguments": {
+          "path": "f3.txt"
+        }
+      }
+    ],
+    [
+      {
+        "id": "rb4",
+        "name": "read_file",
+        "arguments": {
+          "path": "f4.txt"
+        }
+      }
+    ],
+    [
+      {
+        "id": "rb5",
+        "name": "read_file",
+        "arguments": {
+          "path": "f5.txt"
+        }
+      }
+    ]
+  ],
+  "expect": {
+    "state": "BUDGET_EXCEEDED",
+    "reason": "tool_calls",
+    "denied": []
+  }
+}

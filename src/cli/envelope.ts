@@ -8,6 +8,7 @@ export type Envelope<T = unknown> = { schema_version: 1; command: string; data: 
 export function envelope<T>(command: string, data: T, outcome: Outcome): Envelope<T> {
   if (!command.trim()) throw new Error('command must be non-empty');
   if (!Object.hasOwn(EXIT_CODES, outcome.status)) throw new Error('Unknown status');
-  if (outcome.status !== 'ok' && !outcome.next_action?.trim()) throw new Error('Non-ok results require next_action');
+  if (outcome.status !== 'ok' && !outcome.next_action?.trim())
+    throw new Error('Non-ok results require next_action');
   return { schema_version: 1, command, data, ...outcome };
 }

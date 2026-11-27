@@ -38,6 +38,9 @@
         "code": {
           "enum": [
             "TUIG_E_DIRTY",
+            "TUIG_E_RESUME",
+            "TUIG_E_SANDBOX",
+            "TUIG_E_WORKSPACE",
             "TUIG_E_ORACLE_REVIEW",
             "TUIG_E_EGRESS_DENIED",
             "TUIG_E_MODEL_FORMAT",

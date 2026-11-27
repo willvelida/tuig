@@ -15,11 +15,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Install ripgrep (Linux)
+      - name: Install ripgrep and bubblewrap (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which bwrap needs (runner VM only).
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --die-with-parent --unshare-all --ro-bind / / true
+      - name: Check sandbox-exec (macOS)
+        if: runner.os == 'macOS'
+        run: /usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' /usr/bin/true
       - name: Install ripgrep (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -27,9 +33,13 @@ jobs:
             brew install ripgrep
           fi
       - run: rg --version
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+        env:
+          # Sandbox acceptance tests must run, not skip, in CI.
+          TUIG_REQUIRE_SANDBOX: '1'
       - run: npm run docs:check
       - run: npm run fixtures:check
       - run: npm run build:binary
