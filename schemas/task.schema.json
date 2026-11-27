@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tuig task proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "type",
+    "fixtureVersion",
+    "oracleReviewed",
+    "oracle",
+    "timeouts"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]+$"
+    },
+    "type": {
+      "const": "bug-fix"
+    },
+    "fixtureVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "oracleReviewed": {
+      "type": "boolean"
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "framework",
+        "visible",
+        "hidden",
+        "reference",
+        "sha256"
+      ],
+      "properties": {
+        "framework": {
+          "const": "pytest"
+        },
+        "visible": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hidden": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "visible",
+            "hidden",
+            "reference"
+          ],
+          "properties": {
+            "visible": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "hidden": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "reference": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setupSec",
+        "visibleSec",
+        "hiddenSec",
+        "runSec"
+      ],
+      "properties": {
+        "setupSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "visibleSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hiddenSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "runSec": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

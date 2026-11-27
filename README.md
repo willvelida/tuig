@@ -41,3 +41,5 @@ Doctor reports Node/Bun versions, Git, ripgrep, platform sandbox availability, i
 On macOS or Linux/WSL2, initialize and trust a synthetic consumer repository, configure its model and visible checks, and commit the base. Run `tuig run --instruction "Fix the documented bug"` or a reviewed named task with `tuig run <task-id>`. Inspect the returned ID with `tuig runs show <id>`, then verify its decisions offline with `tuig runs replay <id> --adapter replay`. Replay does not execute recorded commands or edits.
 
 Read `tuig docs get configuration` for local, hosted and offline model configuration. Hosted development calls require explicit approval and synthetic fixtures. B0 measurements are pending human oracle review and model selection.
+
+The three benchmark task proposals are ready for [human oracle review](fixtures/ORACLE_REVIEW.md). `npm run fixtures:check` validates metadata and pinned hashes without running the Python oracles. Step 1.11 and the Stage 1 checkpoint remain incomplete until review, isolated execution and B0 measurements pass.

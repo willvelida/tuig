@@ -1,0 +1,17 @@
+[project]
+name = "ledger-lite"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Invented money library used only for tuig evaluation fixtures"
+license = "Apache-2.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests-visible"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

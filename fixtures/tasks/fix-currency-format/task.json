@@ -1,0 +1,23 @@
+{
+  "id": "fix-currency-format",
+  "type": "bug-fix",
+  "fixtureVersion": "ledger-lite-v1",
+  "oracleReviewed": false,
+  "oracle": {
+    "framework": "pytest",
+    "visible": "tests-visible/test_regression.py",
+    "hidden": "tests-hidden/test_oracle.py",
+    "reference": "solution/ledger_lite/formatting.py",
+    "sha256": {
+      "visible": "4f3791990ebea3bdc6e54ba6e2c629bdeba2fe4304f4552cdcd9b390d88b6cef",
+      "hidden": "ff4e3e8356aa2483c2e27495d622db411351fa6801f22a7e5851e5420786e7da",
+      "reference": "e7233c9a8ab948a4709e4006439e65e6d592a01fb65bc1e33f28bd673829de61"
+    }
+  },
+  "timeouts": {
+    "setupSec": 10,
+    "visibleSec": 30,
+    "hiddenSec": 30,
+    "runSec": 3600
+  }
+}
