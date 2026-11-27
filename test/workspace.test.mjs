@@ -215,7 +215,7 @@ test(
       '-m',
       'nested',
     ];
-    const nested = runProcess(r.data.worktree, nestedArgv, '.', 5000, [nestedArgv]);
+    const nested = runProcess(r.data.worktree, nestedArgv, '.', 5000);
     assert.equal(nested.status, 'ok', nested.output);
     const cleaned = cleanupRun(r.data.id, f.repo);
     assert.equal(cleaned.status, 'ok', JSON.stringify(cleaned));
@@ -443,4 +443,33 @@ test('every harness Git invocation goes through the safe helper', () => {
   };
   walk('dist');
   assert.deepEqual(offenders, []);
+});
+
+test('run honours the configured mode: plan denies edits; auto-edit and auto fail closed until the sandbox exists', async (t) => {
+  const plan = fixture(t, [[fixEdit('e1'), call('r1', 'read_file', { path: 'a.txt' })]]);
+  const configPath = join(plan.repo, '.tuig/config.json');
+  const setMode = (repo, mode) => {
+    const path = join(repo, '.tuig/config.json');
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), mode }));
+    sh(repo, ['add', '.tuig/config.json']);
+    commit(repo, 'mode ' + mode);
+  };
+  setMode(plan.repo, 'plan');
+  assert.ok(existsSync(configPath));
+  const r = await runCommand({ cwd: plan.repo, platform: 'linux', instruction: 'Fix a.txt.' });
+  const events = readRun(createRecord(plan.repo, r.data.id)).events;
+  const outcomes = Object.fromEntries(
+    events.filter((e) => e.type === 'tool_call').map((e) => [e.data.id, e.data.status]),
+  );
+  assert.deepEqual(outcomes, { e1: 'policy_denied', r1: 'ok' });
+  assert.equal(events.find((e) => e.type === 'run_start').data.mode, 'plan');
+  assert.equal(readFileSync(join(r.data.worktree, 'a.txt'), 'utf8').trim(), 'broken');
+  for (const mode of ['auto-edit', 'auto']) {
+    const f = fixture(t, []);
+    setMode(f.repo, mode);
+    const refused = await runCommand({ cwd: f.repo, platform: 'linux', instruction: 'Fix a.txt.' });
+    assert.equal(refused.status, 'error', mode);
+    assert.equal(refused.error.code, 'TUIG_E_POLICY_DENIED', mode);
+    assert.equal(existsSync(join(f.repo, '.tuig/temp/worktrees')), false, mode);
+  }
 });

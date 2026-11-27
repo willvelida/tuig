@@ -3,6 +3,7 @@ import { appendEvent, writeSummary, type RecordStore } from '../engine/record.js
 import { recordingAdapter } from './adapter/recording.js';
 import type { Message, ModelAdapter, ToolDefinition } from './adapter/types.js';
 import type { ApprovalDecision, ApprovalRequest, Approver } from './approval.js';
+import type { Mode, PolicyRule } from '../engine/policy.js';
 import { budgets, preflight, afterResponse, type Budgets, type Totals } from './budgets.js';
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
@@ -28,6 +29,8 @@ export type ControllerOptions = {
   beforeTurn?: (turn: number) => void;
   /** Tool definitions sent with each request; replay supplies the recorded ones. */
   tools?: () => ToolDefinition[];
+  /** Permission mode and repository rules for agent tool calls; defaults to ask. */
+  policy?: { mode: Mode; rules: PolicyRule[] };
   /** Extra run_start fields, such as the workspace identity. */
   start?: Record<string, unknown>;
 };
@@ -178,6 +181,7 @@ export async function control(
                 root: options.root,
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],
+                ...(options.policy ?? {}),
                 ...toolContext,
               });
           conversation.push({

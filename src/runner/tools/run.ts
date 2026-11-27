@@ -11,10 +11,8 @@ export function runProcess(
   argv: string[],
   cwd: string,
   timeoutMs: number,
-  allowed: string[][],
 ): ProcessResult {
-  if (!allowed.some((command) => JSON.stringify(command) === JSON.stringify(argv)))
-    throw new Error('Command argv is not allow-listed.');
+  // Callers decide whether argv may run: the policy engine for agent calls, trusted config for checks.
   const dir = workspacePath(root, cwd);
   // Nested Git calls inherit the hook and fsmonitor overrides.
   const env: NodeJS.ProcessEnv = { ...SAFE_GIT_ENV };

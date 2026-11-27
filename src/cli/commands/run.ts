@@ -26,6 +26,7 @@ import { replayAdapter } from '../../runner/adapter/replay.js';
 import type { ModelConfig } from '../../runner/adapter/types.js';
 import { control } from '../../runner/controller.js';
 import type { Approver } from '../../runner/approval.js';
+import type { Mode, PolicyRule } from '../../engine/policy.js';
 import type { Budgets } from '../../runner/budgets.js';
 import { runProcess } from '../../runner/tools/run.js';
 import {
@@ -37,10 +38,10 @@ import {
 } from '../../engine/workspace.js';
 type Check = { name: string; argv: string[]; timeoutSec?: number };
 type Config = {
-  mode: string;
+  mode: Mode;
   models: ModelConfig & { adapter?: string; replayFile?: string };
   budgets?: Partial<Budgets>;
-  policy?: { allowedCommands?: string[][] };
+  policy?: { allowedCommands?: string[][]; rules?: PolicyRule[] };
   tasksDir?: string;
   syntheticFixture?: boolean;
 };
@@ -87,7 +88,8 @@ export async function runCommand(options: {
       config = trusted(root);
     if (!['linux', 'darwin'].includes(options.platform ?? process.platform))
       throw adapterError('TUIG_E_PREREQUISITE');
-    if (config.mode !== 'ask') throw adapterError('TUIG_E_POLICY_DENIED');
+    // auto-edit and auto require the OS sandbox (Step 2.5); fail closed until it exists.
+    if (config.mode !== 'plan' && config.mode !== 'ask') throw adapterError('TUIG_E_POLICY_DENIED');
     let instruction = options.instruction;
     if (options.taskId) {
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.taskId)) throw adapterError('TUIG_E_USAGE');
@@ -167,7 +169,8 @@ export async function runCommand(options: {
     const result = await control({
       root: workspace.path,
       store,
-      start: { workspace: { branch, base: workspace.base } },
+      start: { workspace: { branch, base: workspace.base }, mode: config.mode },
+      policy: { mode: config.mode, rules: config.policy?.rules ?? [] },
       ...(options.approver ? { approver: options.approver } : {}),
       beforeTurn: (turn) => {
         appendEvent(store, 'checkpoint', { turn, ...checkpoint(workspace, turn) });
@@ -187,7 +190,6 @@ export async function runCommand(options: {
             check.argv,
             '.',
             (check.timeoutSec ?? 10) * 1000,
-            [check.argv],
           );
           writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
           return { name: check.name, passed: result.status === 'ok' };

@@ -7,7 +7,15 @@ import { search } from './search.js';
 import { runProcess } from './run.js';
 import { abortWithReason } from './abort.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
-import { resolveTarget } from './paths.js';
+import { resolveTarget, workspacePath } from './paths.js';
+import { realpathSync } from 'node:fs';
+import {
+  describeCommand,
+  evaluate,
+  type Mode,
+  type PolicyCall,
+  type PolicyRule,
+} from '../../engine/policy.js';
 import type { ApprovalRequest, ApprovalDecision } from '../approval.js';
 const text = { type: 'string', minLength: 1 };
 const schema = (properties: Record<string, unknown>, required: string[]) => ({
@@ -78,23 +86,52 @@ export type ToolOptions = {
   allowedCommands?: string[][];
   /** Asked for consequential actions. Absent means non-interactive: deny. */
   approve?: (request: ApprovalRequest) => ApprovalDecision;
+  /** Permission mode; defaults to ask. */
+  mode?: Mode;
+  /** Repository policy rules from trusted configuration. */
+  rules?: PolicyRule[];
 };
 function lineCount(text: string): number {
   return text === '' ? 0 : text.split('\n').length;
 }
-/** Ask for approval; a denial is recorded and surfaces as policy_denied. */
-function requireApproval(options: ToolOptions, request: ApprovalRequest): void {
-  const decision = options.approve ? options.approve(request) : 'deny';
-  if (decision === 'deny') {
-    appendEvent(options.store, 'policy_denied', {
-      id: request.id,
-      tool: request.tool,
-      rule: request.rule,
-      reason: options.approve ? 'denied by approver' : 'approval required; non-interactive run',
-    });
-    throw new Error('Action requires approval (' + request.rule + ') and was denied.');
+/**
+ * Apply policy to one call. Allow returns; ask consults the approver; deny,
+ * and an approver's denial, are recorded as policy_denied and thrown.
+ */
+function enforce(
+  options: ToolOptions,
+  facts: PolicyCall,
+  request: Omit<ApprovalRequest, 'rule'>,
+): void {
+  const verdict = evaluate(facts, {
+    mode: options.mode ?? 'ask',
+    root: realpathSync(options.root),
+    trusted: options.allowedCommands ?? [],
+    rules: options.rules ?? [],
+    interactive: options.approve !== undefined,
+  });
+  if (verdict.decision === 'allow') return;
+  let reason = verdict.reason;
+  if (verdict.decision === 'ask' && options.approve) {
+    if (options.approve({ ...request, rule: verdict.rule }) !== 'deny') return;
+    reason = 'denied by approver';
   }
+  appendEvent(options.store, 'policy_denied', {
+    id: request.id,
+    tool: request.tool,
+    rule: verdict.rule,
+    category: verdict.category,
+    reason,
+  });
+  throw new Error('Denied by policy (' + verdict.rule + '): ' + reason);
 }
+const facts = (tool: string, extra: Partial<PolicyCall> = {}): PolicyCall => ({
+  tool,
+  flags: [],
+  paths: [],
+  hosts: [],
+  ...extra,
+});
 export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
   let status: ToolResult['status'] = 'ok',
     output = '',
@@ -113,27 +150,27 @@ export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
     try {
       switch (call.name) {
         case 'read_file':
+          enforce(options, facts('read_file'), { id: call.id, tool: 'read_file', cwd: '.' });
           output = readFile(options.root, args.path as string);
           break;
         case 'search':
+          enforce(options, facts('search'), { id: call.id, tool: 'search', cwd: '.' });
           output = search(options.root, args.path as string, args.pattern as string);
           break;
         case 'edit': {
           const target = resolveTarget(options.root, args.path as string, 'write');
-          if (target.rule)
-            requireApproval(options, {
-              id: call.id,
-              tool: 'edit',
-              cwd: '.',
-              path: target.rel,
-              rule: 'protected-path:' + target.rule,
-              diffStat:
-                '-' +
-                lineCount(args.search as string) +
-                ' +' +
-                lineCount(args.replace as string) +
-                ' lines',
-            });
+          enforce(options, facts('edit', { protected: target.rule }), {
+            id: call.id,
+            tool: 'edit',
+            cwd: '.',
+            path: target.rel,
+            diffStat:
+              '-' +
+              lineCount(args.search as string) +
+              ' +' +
+              lineCount(args.replace as string) +
+              ' lines',
+          });
           output = edit(
             target.file,
             args.path as string,
@@ -143,6 +180,17 @@ export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
           break;
         }
         case 'git': {
+          const subcommand = args.subcommand as GitSubcommand;
+          enforce(
+            options,
+            facts('git', { write: subcommand === 'add' || subcommand === 'commit' }),
+            {
+              id: call.id,
+              tool: 'git',
+              cwd: '.',
+              argv: ['git', subcommand, ...(args.args as string[])],
+            },
+          );
           const result = gitTool(
             options.root,
             args.subcommand as GitSubcommand,
@@ -153,12 +201,19 @@ export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
           break;
         }
         case 'run': {
+          const argv = args.argv as string[];
+          const cwd = workspacePath(options.root, args.cwd as string);
+          enforce(options, describeCommand(argv, cwd), {
+            id: call.id,
+            tool: 'run',
+            cwd: args.cwd as string,
+            argv,
+          });
           const result = runProcess(
             options.root,
-            args.argv as string[],
+            argv,
             args.cwd as string,
             args.timeoutMs as number,
-            options.allowedCommands ?? [],
           );
           output = result.output;
           status = result.status;
