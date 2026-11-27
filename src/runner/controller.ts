@@ -22,7 +22,10 @@ export type ControllerOptions = {
   now?: () => number;
   assemble?: (conversation: Message[]) => Message[];
   context?: { agents: string; instruction: string };
-  execute?: (call: Parameters<typeof executeTool>[0], context: ToolContext) => ToolResult;
+  execute?: (
+    call: Parameters<typeof executeTool>[0],
+    context: ToolContext,
+  ) => ToolResult | Promise<ToolResult>;
   /** Human decision source. Absent means non-interactive: approvals become denials. */
   approver?: Approver;
   /** Runs before every model request, e.g. to checkpoint the workspace. */
@@ -30,7 +33,7 @@ export type ControllerOptions = {
   /** Tool definitions sent with each request; replay supplies the recorded ones. */
   tools?: () => ToolDefinition[];
   /** Permission mode and repository rules for agent tool calls; defaults to ask. */
-  policy?: { mode: Mode; rules: PolicyRule[] };
+  policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[] };
   /** Extra run_start fields, such as the workspace identity. */
   start?: Record<string, unknown>;
 };
@@ -176,8 +179,9 @@ export async function control(
           if (!boundary(1, false)) break;
           totals.toolCalls++;
           const result: ToolResult = options.execute
-            ? options.execute(call, toolContext)
-            : executeTool(call, {
+            ? await options.execute(call, toolContext)
+            : await executeTool(call, {
+                signal,
                 root: options.root,
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],

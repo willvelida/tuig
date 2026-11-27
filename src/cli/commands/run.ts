@@ -43,7 +43,7 @@ type Config = {
   mode: Mode;
   models: ModelConfig & { adapter?: string; replayFile?: string };
   budgets?: Partial<Budgets>;
-  policy?: { allowedCommands?: string[][]; rules?: PolicyRule[] };
+  policy?: { allowedCommands?: string[][]; rules?: PolicyRule[]; passEnv?: string[] };
   tasksDir?: string;
   syntheticFixture?: boolean;
 };
@@ -175,11 +175,15 @@ export async function runCommand(options: {
     const agents = existsSync(join(root, 'AGENTS.md'))
       ? readFileSync(join(root, 'AGENTS.md'), 'utf8')
       : '';
+    // Tools see only explicitly configured parent variables, never the model credential.
+    const passEnv = (config.policy?.passEnv ?? []).filter(
+      (name) => name !== config.models.apiKeyEnv,
+    );
     const result = await control({
       root: workspace.path,
       store,
       start: { workspace: { branch, base: workspace.base }, mode: config.mode },
-      policy: { mode: config.mode, rules: config.policy?.rules ?? [] },
+      policy: { mode: config.mode, rules: config.policy?.rules ?? [], passEnv },
       ...(approver ? { approver } : {}),
       beforeTurn: (turn) => {
         appendEvent(store, 'checkpoint', { turn, ...checkpoint(workspace, turn) });
@@ -191,18 +195,20 @@ export async function runCommand(options: {
       allowedCommands:
         config.policy?.allowedCommands ?? checkConfig.checks.map((check) => check.argv),
       validate: async () => {
-        const checks = checkConfig.checks.map((check) => {
+        const checks = [];
+        for (const check of checkConfig.checks) {
           // The check command is host-owned trusted configuration, not model text.
           const sequence = appendCheckIntent(store, check);
-          const result = runProcess(
+          const result = await runProcess(
             workspace.path,
             check.argv,
             '.',
             (check.timeoutSec ?? 10) * 1000,
+            { passEnv },
           );
           writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
-          return { name: check.name, passed: result.status === 'ok' };
-        });
+          checks.push({ name: check.name, passed: result.status === 'ok' });
+        }
         return { checks };
       },
     });

@@ -215,7 +215,7 @@ test(
       '-m',
       'nested',
     ];
-    const nested = runProcess(r.data.worktree, nestedArgv, '.', 5000);
+    const nested = await runProcess(r.data.worktree, nestedArgv, '.', 5000);
     assert.equal(nested.status, 'ok', nested.output);
     const cleaned = cleanupRun(r.data.id, f.repo);
     assert.equal(cleaned.status, 'ok', JSON.stringify(cleaned));
@@ -223,7 +223,7 @@ test(
   },
 );
 
-test('writes to protected paths take the approval path; denials and non-interactive runs record policy_denied', (t) => {
+test('writes to protected paths take the approval path; denials and non-interactive runs record policy_denied', async (t) => {
   const f = fixture(t, []);
   const workspace = createWorkspace(f.repo, 'approval');
   mkdirSync(join(workspace.path, '.github', 'workflows'), { recursive: true });
@@ -254,23 +254,23 @@ test('writes to protected paths take the approval path; denials and non-interact
   for (const [path, search, rule] of targets) {
     const before = readFileSync(join(workspace.path, path), 'utf8');
     // Denied by the approver: nothing written.
-    assert.equal(run('d-' + path, path, search, 'X', 'deny').status, 'policy_denied');
+    assert.equal((await run('d-' + path, path, search, 'X', 'deny')).status, 'policy_denied');
     assert.equal(readFileSync(join(workspace.path, path), 'utf8'), before);
     assert.equal(requests.at(-1).rule, rule);
     assert.equal(requests.at(-1).path, path);
     // Non-interactive (no approver): denied without asking.
     const count = requests.length;
-    assert.equal(run('n-' + path, path, search, 'X').status, 'policy_denied');
+    assert.equal((await run('n-' + path, path, search, 'X')).status, 'policy_denied');
     assert.equal(requests.length, count);
     assert.equal(readFileSync(join(workspace.path, path), 'utf8'), before);
     // Approved: the write happens.
-    assert.equal(run('a-' + path, path, search, 'APPROVED', 'allow_once').status, 'ok');
+    assert.equal((await run('a-' + path, path, search, 'APPROVED', 'allow_once')).status, 'ok');
     assert.match(readFileSync(join(workspace.path, path), 'utf8'), /APPROVED/);
   }
   // Ordinary files never ask; credentials are refused even with an approver that would allow.
   const asked = requests.length;
-  assert.equal(run('plain', 'a.txt', 'broken', 'fixed', 'allow_once').status, 'ok');
-  assert.equal(run('cred', '.env', 'SECRET', 'X', 'allow_once').status, 'policy_denied');
+  assert.equal((await run('plain', 'a.txt', 'broken', 'fixed', 'allow_once')).status, 'ok');
+  assert.equal((await run('cred', '.env', 'SECRET', 'X', 'allow_once')).status, 'policy_denied');
   assert.equal(requests.length, asked);
   assert.equal(readFileSync(join(workspace.path, '.env'), 'utf8'), 'SECRET=1\n');
   const denials = readRun(store).events.filter((e) => e.type === 'policy_denied');
@@ -372,7 +372,7 @@ test('a dirty base is refused with a fix, including untracked files, before any 
   assert.equal(existsSync(join(f.repo, '.tuig/temp/worktrees')), false);
 });
 
-test('checkpoints land on shadow refs per turn without touching the agent index; diff includes new files', (t) => {
+test('checkpoints land on shadow refs per turn without touching the agent index; diff includes new files', async (t) => {
   const f = fixture(t, []);
   const ws = createWorkspace(f.repo, 'shadow');
   assert.equal(ws.branch, 'tuig/run-shadow');
@@ -403,7 +403,7 @@ test('checkpoints land on shadow refs per turn without touching the agent index;
   assert.equal(readFileSync(join(f.repo, 'a.txt'), 'utf8'), 'broken\n');
 });
 
-test('git tool offers six subcommands with allow-listed flags only', () => {
+test('git tool offers six subcommands with allow-listed flags only', async () => {
   assert.deepEqual(gitArgv('commit', ['-m', '--amend']), ['-m', '--amend']);
   assert.deepEqual(gitArgv('log', ['--oneline', '-n', '5']), ['--oneline', '-n', '5']);
   assert.deepEqual(gitArgv('diff', ['--stat', '--', '-weird-path']), [
@@ -430,7 +430,7 @@ test('git tool offers six subcommands with allow-listed flags only', () => {
     assert.throws(() => gitArgv(subcommand, args), subcommand + ' ' + args.join(' '));
 });
 
-test('every harness Git invocation goes through the safe helper', () => {
+test('every harness Git invocation goes through the safe helper', async () => {
   const offenders = [];
   const walk = (directory) => {
     for (const name of readdirSync(directory)) {

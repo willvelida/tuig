@@ -181,7 +181,7 @@ test('policy rules in configuration are validated', () => {
     assert.equal(ok(policy), false, JSON.stringify(policy));
 });
 
-test('the run tool enforces policy before any side effect: flag injection never executes', (t) => {
+test('the run tool enforces policy before any side effect: flag injection never executes', async (t) => {
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'tuig-policy-run-')));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   writeFileSync(join(workspace, 'a.txt'), 'needle\n');
@@ -203,7 +203,7 @@ test('the run tool enforces policy before any side effect: flag injection never 
     ],
   ]) {
     // Even an approver that allows everything is never consulted for a deny.
-    const result = exec(id, argv, { mode: 'ask', approve: () => 'allow_once' });
+    const result = await exec(id, argv, { mode: 'ask', approve: () => 'allow_once' });
     assert.equal(result.status, 'policy_denied', id);
     assert.equal(existsSync(marker), false, id);
   }
@@ -215,7 +215,7 @@ test('the run tool enforces policy before any side effect: flag injection never 
   assert.ok(denials.every((e) => e.data.category === 'injection'));
 });
 
-test('tools follow the mode: plan is read-only; ask runs unknown commands only after approval', (t) => {
+test('tools follow the mode: plan is read-only; ask runs unknown commands only after approval', async (t) => {
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'tuig-policy-mode-')));
   t.after(() => rmSync(workspace, { recursive: true, force: true }));
   writeFileSync(join(workspace, 'a.txt'), 'one\n');
@@ -223,25 +223,28 @@ test('tools follow the mode: plan is read-only; ask runs unknown commands only a
   const call = (id, name, args, options) =>
     executeTool({ id, name, arguments: args }, { root: workspace, store, ...options });
   const plan = { mode: 'plan' };
-  assert.equal(call('r', 'read_file', { path: 'a.txt' }, plan).status, 'ok');
+  assert.equal((await call('r', 'read_file', { path: 'a.txt' }, plan)).status, 'ok');
   assert.equal(
-    call('e', 'edit', { path: 'a.txt', search: 'one', replace: 'two' }, plan).status,
+    (await call('e', 'edit', { path: 'a.txt', search: 'one', replace: 'two' }, plan)).status,
     'policy_denied',
   );
   assert.equal(readFileSync(join(workspace, 'a.txt'), 'utf8'), 'one\n');
   const argv = [process.execPath, join(workspace, 'missing-script.js')];
   const run = (options) => call('u', 'run', { argv, cwd: '.', timeoutMs: 5000 }, options);
-  assert.equal(run({ mode: 'ask' }).status, 'policy_denied');
+  assert.equal((await run({ mode: 'ask' })).status, 'policy_denied');
   const asked = [];
-  const approved = run({ mode: 'ask', approve: (request) => (asked.push(request), 'allow_once') });
+  const approved = await run({
+    mode: 'ask',
+    approve: (request) => (asked.push(request), 'allow_once'),
+  });
   assert.equal(approved.status, 'nonzero_exit');
   assert.equal(asked.length, 1);
   assert.deepEqual(asked[0].argv, argv);
   assert.equal(asked[0].rule, 'mode:ask:unknown-command');
-  assert.equal(run({ mode: 'ask', approve: () => 'deny' }).status, 'policy_denied');
+  assert.equal((await run({ mode: 'ask', approve: () => 'deny' })).status, 'policy_denied');
   // Trusted exact argv runs without asking in ask mode.
   const trustedArgv = [process.execPath, '-e', 'process.exit(0)'];
-  const result = call(
+  const result = await call(
     't',
     'run',
     { argv: trustedArgv, cwd: '.', timeoutMs: 5000 },

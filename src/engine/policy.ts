@@ -134,6 +134,13 @@ const GIT_DESTRUCTIVE: Readonly<Record<string, readonly string[] | true>> = {
 };
 
 const DENIED_COMMANDS = new Set([
+  // Signalling processes by name or pid could stop the harness itself.
+  'kill',
+  'pkill',
+  'killall',
+  'skill',
+  'snice',
+  'xkill',
   'sudo',
   'su',
   'doas',

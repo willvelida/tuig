@@ -47,7 +47,7 @@ for (const task of inspectFixtureProposals()) {
       'print("isolation probe passed")',
     ].join(';'),
   ]);
-  const isolated = runProcess(workspace, probe, '.', 60000, [probe]);
+  const isolated = await runProcess(workspace, probe, '.', 60000);
   assert.equal(isolated.status, 'ok', isolated.output);
   assert.match(isolated.output, /isolation probe passed/);
   const visible = containerArgs(workspace, [

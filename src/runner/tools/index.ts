@@ -65,7 +65,7 @@ const validators = Object.fromEntries(
 );
 export type ToolResult = {
   id: string;
-  status: 'ok' | 'invalid_args' | 'policy_denied' | 'nonzero_exit' | 'timeout';
+  status: 'ok' | 'invalid_args' | 'policy_denied' | 'nonzero_exit' | 'timeout' | 'cancelled';
   output: string;
   log: string;
   aborted?: string;
@@ -90,6 +90,10 @@ export type ToolOptions = {
   mode?: Mode;
   /** Repository policy rules from trusted configuration. */
   rules?: PolicyRule[];
+  /** Extra parent environment variable names that run may pass to tools. */
+  passEnv?: string[];
+  /** Cancels a running tool by terminating its process group. */
+  signal?: AbortSignal;
 };
 function lineCount(text: string): number {
   return text === '' ? 0 : text.split('\n').length;
@@ -132,7 +136,7 @@ const facts = (tool: string, extra: Partial<PolicyCall> = {}): PolicyCall => ({
   hosts: [],
   ...extra,
 });
-export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
+export async function executeTool(call: ToolCall, options: ToolOptions): Promise<ToolResult> {
   let status: ToolResult['status'] = 'ok',
     output = '',
     aborted: string | undefined;
@@ -209,11 +213,15 @@ export function executeTool(call: ToolCall, options: ToolOptions): ToolResult {
             cwd: args.cwd as string,
             argv,
           });
-          const result = runProcess(
+          const result = await runProcess(
             options.root,
             argv,
             args.cwd as string,
             args.timeoutMs as number,
+            {
+              ...(options.signal ? { signal: options.signal } : {}),
+              ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+            },
           );
           output = result.output;
           status = result.status;

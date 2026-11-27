@@ -78,6 +78,23 @@ export function validateConfig(value: unknown): string[] {
       (policy.rules !== undefined && !(Array.isArray(policy.rules) && policy.rules.every(rule)))
     )
       errors.push('policy.rules must be an array of {decision, command, flags?, subcommands?}.');
+    if (
+      object(policy) &&
+      policy.passEnv !== undefined &&
+      !(
+        Array.isArray(policy.passEnv) &&
+        policy.passEnv.every(
+          (name: unknown) =>
+            typeof name === 'string' &&
+            /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
+            !['HOME', 'TMPDIR', 'TEMP', 'TMP'].includes(name) &&
+            !name.startsWith('GIT_'),
+        )
+      )
+    )
+      errors.push(
+        'policy.passEnv must list environment variable names (not HOME, TMPDIR or GIT_*).',
+      );
   }
   const models = value.models;
   if (
@@ -94,5 +111,12 @@ export function validateConfig(value: unknown): string[] {
     })
   )
     errors.push('models.allowedEndpoints must be an array of HTTP(S) URLs without credentials.');
+  if (
+    object(value.policy) &&
+    Array.isArray(value.policy.passEnv) &&
+    object(models) &&
+    value.policy.passEnv.includes(models.apiKeyEnv)
+  )
+    errors.push('policy.passEnv must not include the model credential variable.');
   return errors;
 }
