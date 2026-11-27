@@ -72,7 +72,7 @@ Status values: Not started · In progress · Blocked · Done
 
 | Date | Session summary | Steps touched | Commits |
 |---|---|---|---|
-| 2026-11-27 | Completed repository orientation and latest-main verification on new branch. | 0 | See Step 0 commit reference |
+| 2026-11-27 | Completed repository orientation and latest-main verification on new branch. | 0 | `80dee38` |
 
 ## Baselines and measurements
 

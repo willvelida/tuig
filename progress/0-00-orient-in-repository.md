@@ -6,7 +6,7 @@
 - **Status:** Done  <!-- Not started | In progress | Blocked | Done -->
 - **Started:** 2026-11-27
 - **Completed:** 2026-11-27
-- **Commits:** Orientation commit; resolve with `git log --oneline --grep="docs(progress): complete repository orientation"`.
+- **Commits:** `80dee38` — docs(progress): complete repository orientation.
 
 ## Build
 
