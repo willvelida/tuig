@@ -28,7 +28,7 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
     const start = source.events.find(event => event.type === 'run_start');
     if (!start) throw adapterError('TUIG_E_REPLAY');
     const requests = source.events.filter(event => event.type === 'model_request'); let requestIndex = 0;
-    const adapter = { endpoint: String(start.data.endpoint), model: String(start.data.model), async complete(request: Parameters<typeof replay.complete>[0]) {
+    const adapter = { endpoint: String(start.data.endpoint), model: String(start.data.model), ...(start.data.historyMode === 'append-only' ? {historyMode:'append-only' as const}: {}), async complete(request: Parameters<typeof replay.complete>[0]) {
       try { const response = await replay.complete(request); cancelAtBoundaryAfterResponse(); return response; }
       catch (error) { cancelAtBoundaryAfterResponse(); throw error; }
     } };

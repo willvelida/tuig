@@ -14,3 +14,5 @@ The project needs an agreed boundary for models and data egress.
 ## Consequences
 
 Implementation must respect this boundary; changes require human agreement and a new decision.
+
+Amendment: on 2026-11-27 the human approved an additional native Anthropic Messages adapter, retaining compatible and replay adapters. See ADR 0027. The model-neutral/local-default and hosted allow-list restrictions remain in effect.

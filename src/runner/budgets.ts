@@ -1,6 +1,6 @@
 export const DEFAULT_BUDGETS = { requests: 100, cost: 10, wallSeconds: 3600, formatErrors: 3, repairPerCheck: 3, repairTotal: 6 } as const;
 export type Budgets = { requests: number; cost: number; wallSeconds: number; formatErrors: number; repairPerCheck: number; repairTotal: number; toolCalls?: number; tokens?: number };
-export type Totals = { requests: number; toolCalls: number; input: number; cached: number; output: number; reasoning: number; cost: number; repairs: number };
+export type Totals = { requests: number; toolCalls: number; input: number; cached: number; output: number; reasoning: number; cost: number; repairs: number; cacheWrite5m?: number; cacheWrite1h?: number; reasoningKnown?: boolean };
 export type BudgetKind = 'requests' | 'tool_calls' | 'tokens' | 'cost' | 'wall';
 export function budgets(overrides: Partial<Budgets> = {}): Budgets {
   const result = { ...DEFAULT_BUDGETS, ...overrides };

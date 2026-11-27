@@ -7,6 +7,7 @@ import { envelope, type Envelope } from '../envelope.js';
 import { cliError, ERRORS, type ErrorCode } from '../errors.js';
 import { git, isTrusted, repositoryIdentity, trustFile, validateConfig } from '../../engine/repository-state.js';
 import { createRecord, existingRecord, readRun, writeArtifact, writeSummary, type RunEvent } from '../../engine/record.js';
+import { anthropicAdapter } from '../../runner/adapter/anthropic.js';
 import { openAIAdapter, adapterError } from '../../runner/adapter/openai-compat.js';
 import { replayAdapter } from '../../runner/adapter/replay.js';
 import type { ModelConfig } from '../../runner/adapter/types.js';
@@ -47,10 +48,10 @@ export async function runCommand(options: { taskId?: string; instruction?: strin
     if (checkConfig.schema_version !== 1 || !Array.isArray(checkConfig.checks) || !checkConfig.checks.length || !checkConfig.checks.every(check => typeof check.name === 'string' && Array.isArray(check.argv) && check.argv.length > 0 && check.argv.every(arg => typeof arg === 'string' && arg.length > 0) && (check.timeoutSec === undefined || Number.isFinite(check.timeoutSec) && check.timeoutSec > 0 && check.timeoutSec <= 60))) throw adapterError('TUIG_E_CONFIG');
     if (config.policy?.allowedCommands && (!Array.isArray(config.policy.allowedCommands) || !config.policy.allowedCommands.every(argv => Array.isArray(argv) && argv.length > 0 && argv.every(arg => typeof arg === 'string' && arg.length > 0)))) throw adapterError('TUIG_E_CONFIG');
     budgets(config.budgets ?? {});
-    if (config.models.adapter && !['replay','openai-compat'].includes(config.models.adapter)) throw adapterError('TUIG_E_CONFIG');
+    if (config.models.adapter && !['replay','openai-compat','anthropic'].includes(config.models.adapter)) throw adapterError('TUIG_E_CONFIG');
     const adapter = config.models.adapter === 'replay'
       ? replayAdapter(readFileSync(resolve(root, config.models.replayFile ?? ''), 'utf8').trim().split(/\r?\n/).map(line => JSON.parse(line) as RunEvent))
-      : openAIAdapter(config.models);
+      : config.models.adapter === 'anthropic' ? anthropicAdapter(config.models) : openAIAdapter(config.models);
     if (adapter.endpoint !== 'replay' && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(adapter.endpoint).hostname) && config.syntheticFixture !== true) throw adapterError('TUIG_E_POLICY_DENIED');
     // Stage 1 branches are deliberately simple; worktrees arrive in Stage 2.
     if (git(['status', '--porcelain'], root)) throw adapterError('TUIG_E_DIRTY');

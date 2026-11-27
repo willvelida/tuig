@@ -37,7 +37,7 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
     if (exceeded) { move('budget', exceeded); return false; }
     return true;
   }
-  appendEvent(options.store, 'run_start', { endpoint: adapter.endpoint, model: adapter.model, budgets: limits });
+  appendEvent(options.store, 'run_start', { endpoint: adapter.endpoint, model: adapter.model, budgets: limits, ...(adapter.historyMode ? {historyMode:adapter.historyMode}: {}) });
   move('start');
   try {
     while (!TERMINAL.has(state)) {
@@ -46,7 +46,7 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
       const step = totals.requests++;
       let response;
       try {
-        const messages = options.assemble ? options.assemble(conversation) : options.context ? assemble({ ...options.context, conversation }) : [...options.messages, ...conversation];
+        const messages = options.assemble ? options.assemble(conversation) : options.context ? assemble({ ...options.context, conversation, preserveHistory: adapter.historyMode === 'append-only' }) : [...options.messages, ...conversation];
         response = await adapter.complete({ step, messages, tools: TOOL_DEFINITIONS, signal });
       } catch (error) {
         if (signal.aborted) { move('cancel', 'SIGINT or cancellation requested'); break; }
@@ -58,10 +58,15 @@ export async function control(options: ControllerOptions): Promise<{ state: Stat
         if (!Number.isFinite(value) || value < 0) throw new Error('Invalid model usage');
         totals[key] += value;
       }
+      for (const key of ['cacheWrite5m','cacheWrite1h'] as const) {
+        const value = response.usage[key];
+        if (value !== undefined) { if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid cache usage'); totals[key] = (totals[key] ?? 0) + value; }
+      }
+      if (response.usage.reasoningKnown === false) totals.reasoningKnown = false;
       const exceeded = afterResponse(limits, totals);
       if (exceeded) { move('budget', exceeded); break; }
       if (!boundary(response.toolCalls.length, false)) break;
-      conversation.push({ role: 'assistant', content: response.message, ...(response.toolCalls.length ? { tool_calls: response.toolCalls.map(call => ({ id: call.id, type: 'function' as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) } : {}) });
+      conversation.push({ role: 'assistant', content: response.message, ...(response.providerContent ? {providerContent:response.providerContent}: {}), ...(response.toolCalls.length ? { tool_calls: response.toolCalls.map(call => ({ id: call.id, type: 'function' as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) } : {}) });
       if (response.toolCalls.length) {
         let invalid = false;
         for (const call of response.toolCalls) {
