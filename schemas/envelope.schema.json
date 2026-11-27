@@ -37,6 +37,10 @@
       "properties": {
         "code": {
           "enum": [
+            "TUIG_E_EGRESS_DENIED",
+            "TUIG_E_MODEL_FORMAT",
+            "TUIG_E_MODEL_HTTP",
+            "TUIG_E_REPLAY",
             "TUIG_E_CONFIG",
             "TUIG_E_PREREQUISITE",
             "TUIG_E_DOC_TOPIC",
