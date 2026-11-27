@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tuig run event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "seq",
+    "timestamp",
+    "type",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "type": {
+      "enum": [
+        "run_start",
+        "model_request",
+        "model_response",
+        "tool_intent",
+        "tool_call",
+        "sensor_result",
+        "approval_requested",
+        "approval_decided",
+        "policy_denied",
+        "checkpoint",
+        "state_transition",
+        "run_end"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}
