@@ -24,7 +24,7 @@ Run npm run lint, npm run typecheck and npm test. Run npm run build:binary to co
 
 The planned agent defaults to local models, explicitly allow-listed hosted endpoints, and terminal approval prompts. macOS and Linux (including WSL2) are the supported v1 platforms. Native Windows is out of scope. The runner and sandbox are not implemented yet.
 
-Start with `tuig agents-start-here`, read an offline topic with `tuig docs get safety`, and inspect readiness with `tuig doctor`. Initialization and trust commands are the next implementation step. See [decisions](docs/decisions/) for architecture and defaults.
+Start with `tuig agents-start-here`, read an offline topic with `tuig docs get safety`, and inspect readiness with `tuig doctor`. Initialize a consumer repository with `tuig init`, review the proposed configuration, then grant trust with `tuig trust`. Use `--write-agents-md` only when you want the proposed AGENTS section written. Non-interactive trust requires `TUIG_TRUST_CI=1`. See [decisions](docs/decisions/) for architecture and defaults.
 
 Licensed under [Apache-2.0](LICENSE).
 

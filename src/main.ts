@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { createInterface } from 'node:readline/promises';
+import { initialize, templateDiff } from './engine/init.js';
+import { trustRepository } from './engine/trust.js';
+import { repositoryIdentity } from './engine/repository-state.js';
 import { CLI_NAME, VERSION } from './cli/name.js';
 import { envelope, EXIT_CODES, type Envelope } from './cli/envelope.js';
 import { cliError } from './cli/errors.js';
@@ -18,13 +22,14 @@ try {
 }
 if (process.exitCode === undefined) {
   try {
-    const { values, positionals } = parseArgs({ allowPositionals: true, options: { version: { type: 'boolean' }, help: { type: 'boolean' } } });
+    const { values, positionals } = parseArgs({ allowPositionals: true, options: { version: { type: 'boolean' }, help: { type: 'boolean' }, 'write-agents-md': { type: 'boolean' } } });
     const [verb, operation, topic] = positionals;
+    if (values['write-agents-md'] && verb !== 'init') throw new Error('--write-agents-md is only valid with init.');
     if (values.version || values.help || positionals.length === 0) {
       if (positionals.length || (values.version && values.help)) throw new Error('Use a single command or option.');
       result = values.version
         ? envelope('version', { version: VERSION }, { status: 'ok' })
-        : envelope('help', { usage: CLI_NAME + ' [--help | --version | agents-start-here | docs get <topic> | doctor]' }, { status: 'ok' });
+        : envelope('help', { usage: CLI_NAME + ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff]' }, { status: 'ok' });
     } else if (verb === 'agents-start-here' && positionals.length === 1) {
       result = envelope(verb, { content: DOCS['agents-start-here'] }, { status: 'ok' });
     } else if (verb === 'docs' && operation === 'get' && topic && positionals.length === 3) {
@@ -33,6 +38,31 @@ if (process.exitCode === undefined) {
       } else {
         const error = cliError('TUIG_E_DOC_TOPIC');
         result = envelope('docs get', { topics: Object.keys(DOCS).sort() }, { status: 'error', error, next_action: error.fix });
+      }
+    } else if (verb === 'init' && positionals.length === 1) {
+      try {
+        const data = initialize(process.cwd(),values['write-agents-md']);
+        result = data.conflicts.length ? envelope('init',data,{status:'degraded',next_action:'Review preserved files with ' + CLI_NAME + ' template diff.'}) : envelope('init',data,{status:'ok'});
+      } catch (cause) {
+        const error=cliError('TUIG_E_CONFIG',cause instanceof Error ? cause.message : String(cause));
+        result=envelope('init',{}, {status:'error',error,next_action:error.fix});
+      }
+    } else if (verb === 'template' && operation === 'diff' && positionals.length === 2) {
+      result=envelope('template diff',{files:templateDiff(process.cwd())},{status:'ok'});
+    } else if (verb === 'trust' && positionals.length === 1) {
+      let approved = process.env.TUIG_TRUST_CI === '1';
+      if (!approved && process.stdin.isTTY && process.stderr.isTTY) {
+        const identity = repositoryIdentity(process.cwd());
+        const prompt = createInterface({input:process.stdin,output:process.stderr});
+        try { approved = (await prompt.question('Trust ' + identity.path + ' (roots ' + identity.rootCommits.join(', ') + ')? [y/N] ')).trim().toLowerCase() === 'y'; }
+        finally { prompt.close(); }
+      }
+      if (!approved) {
+        const error=cliError('TUIG_E_UNTRUSTED');
+        result=envelope('trust',{}, {status:'unconfigured',error,next_action:'Review the repository, then confirm interactively or set TUIG_TRUST_CI=1 in non-interactive mode.'});
+      } else {
+        try { result=envelope('trust',trustRepository(process.cwd()),{status:'ok'}); }
+        catch (cause) { const error=cliError('TUIG_E_CONFIG',cause instanceof Error ? cause.message : String(cause)); result=envelope('trust',{}, {status:'error',error,next_action:error.fix}); }
       }
     } else if (verb === 'doctor' && positionals.length === 1) {
       result = doctor();
