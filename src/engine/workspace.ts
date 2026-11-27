@@ -152,3 +152,12 @@ export function cleanupWorkspace(workspace: Workspace): { branch: string; commit
   gitOutput(['worktree', 'remove', '--force', workspace.path], workspace.root);
   return { branch: workspace.branch, commit };
 }
+
+/** One-line summary of the worktree's changes since the base, for approval prompts. */
+export function diffStat(workspace: Workspace): string {
+  const tree = snapshotTree(workspace);
+  return gitOutput(
+    ['diff', '--shortstat', '--no-color', '--no-ext-diff', '--no-textconv', workspace.base, tree],
+    workspace.path,
+  );
+}

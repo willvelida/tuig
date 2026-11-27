@@ -26,6 +26,7 @@ import { replayAdapter } from '../../runner/adapter/replay.js';
 import type { ModelConfig } from '../../runner/adapter/types.js';
 import { control } from '../../runner/controller.js';
 import type { Approver } from '../../runner/approval.js';
+import { openTerminal, terminalApprover, type TerminalIO } from '../approval-prompt.js';
 import type { Mode, PolicyRule } from '../../engine/policy.js';
 import type { Budgets } from '../../runner/budgets.js';
 import { runProcess } from '../../runner/tools/run.js';
@@ -34,6 +35,7 @@ import {
   cleanupWorkspace,
   createWorkspace,
   diffPatch,
+  diffStat,
   openWorkspace,
 } from '../../engine/workspace.js';
 type Check = { name: string; argv: string[]; timeoutSec?: number };
@@ -80,9 +82,12 @@ export async function runCommand(options: {
   instruction?: string;
   cwd?: string;
   platform?: NodeJS.Platform;
-  /** Decides approval requests; absent means non-interactive (deny). */
+  /** Decides approval requests. Defaults to the terminal prompt when one is available. */
   approver?: Approver;
+  /** Force non-interactive behaviour (ask becomes deny) even on a terminal. */
+  interactive?: boolean;
 }): Promise<Envelope> {
+  let terminal: TerminalIO | null = null;
   try {
     const root = rootAt(options.cwd ?? process.cwd()),
       config = trusted(root);
@@ -163,6 +168,10 @@ export async function runCommand(options: {
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
     });
+    terminal = options.approver || options.interactive === false ? null : openTerminal();
+    const approver =
+      options.approver ??
+      (terminal ? terminalApprover(terminal, () => diffStat(workspace)) : undefined);
     const agents = existsSync(join(root, 'AGENTS.md'))
       ? readFileSync(join(root, 'AGENTS.md'), 'utf8')
       : '';
@@ -171,7 +180,7 @@ export async function runCommand(options: {
       store,
       start: { workspace: { branch, base: workspace.base }, mode: config.mode },
       policy: { mode: config.mode, rules: config.policy?.rules ?? [] },
-      ...(options.approver ? { approver: options.approver } : {}),
+      ...(approver ? { approver } : {}),
       beforeTurn: (turn) => {
         appendEvent(store, 'checkpoint', { turn, ...checkpoint(workspace, turn) });
       },
@@ -210,6 +219,8 @@ export async function runCommand(options: {
         });
   } catch (error) {
     return commandFailure('run', error);
+  } finally {
+    terminal?.close?.();
   }
 }
 import { appendEvent, type RecordStore } from '../../engine/record.js';
