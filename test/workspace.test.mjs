@@ -445,7 +445,7 @@ test('every harness Git invocation goes through the safe helper', async () => {
   assert.deepEqual(offenders, []);
 });
 
-test('run honours the configured mode: plan denies edits; auto-edit and auto fail closed until the sandbox exists', async (t) => {
+test('run honours the configured mode: plan denies edits; auto-edit and auto fail closed without a sandbox', async (t) => {
   const plan = fixture(t, [[fixEdit('e1'), call('r1', 'read_file', { path: 'a.txt' })]]);
   const configPath = join(plan.repo, '.tuig/config.json');
   const setMode = (repo, mode) => {
@@ -467,9 +467,14 @@ test('run honours the configured mode: plan denies edits; auto-edit and auto fai
   for (const mode of ['auto-edit', 'auto']) {
     const f = fixture(t, []);
     setMode(f.repo, mode);
-    const refused = await runCommand({ cwd: f.repo, platform: 'linux', instruction: 'Fix a.txt.' });
+    const refused = await runCommand({
+      cwd: f.repo,
+      platform: 'linux',
+      instruction: 'Fix a.txt.',
+      sandbox: null,
+    });
     assert.equal(refused.status, 'error', mode);
-    assert.equal(refused.error.code, 'TUIG_E_POLICY_DENIED', mode);
+    assert.equal(refused.error.code, 'TUIG_E_SANDBOX', mode);
     assert.equal(existsSync(join(f.repo, '.tuig/temp/worktrees')), false, mode);
   }
 });

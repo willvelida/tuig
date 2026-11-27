@@ -28,6 +28,7 @@ import { control } from '../../runner/controller.js';
 import type { Approver } from '../../runner/approval.js';
 import { openTerminal, terminalApprover, type TerminalIO } from '../approval-prompt.js';
 import type { Mode, PolicyRule } from '../../engine/policy.js';
+import { detectSandbox, type Sandbox } from '../../sandbox/index.js';
 import type { Budgets } from '../../runner/budgets.js';
 import { runProcess } from '../../runner/tools/run.js';
 import {
@@ -41,6 +42,7 @@ import {
 type Check = { name: string; argv: string[]; timeoutSec?: number };
 type Config = {
   mode: Mode;
+  sandbox?: 'auto' | 'off';
   models: ModelConfig & { adapter?: string; replayFile?: string };
   budgets?: Partial<Budgets>;
   policy?: { allowedCommands?: string[][]; rules?: PolicyRule[]; passEnv?: string[] };
@@ -86,6 +88,8 @@ export async function runCommand(options: {
   approver?: Approver;
   /** Force non-interactive behaviour (ask becomes deny) even on a terminal. */
   interactive?: boolean;
+  /** Override sandbox detection (tests); null means no sandbox is available. */
+  sandbox?: Sandbox | null;
 }): Promise<Envelope> {
   let terminal: TerminalIO | null = null;
   try {
@@ -93,8 +97,16 @@ export async function runCommand(options: {
       config = trusted(root);
     if (!['linux', 'darwin'].includes(options.platform ?? process.platform))
       throw adapterError('TUIG_E_PREREQUISITE');
-    // auto-edit and auto require the OS sandbox (Step 2.5); fail closed until it exists.
-    if (config.mode !== 'plan' && config.mode !== 'ask') throw adapterError('TUIG_E_POLICY_DENIED');
+    // auto-edit and auto run commands without asking, so they require a working OS sandbox.
+    const autonomous = config.mode === 'auto-edit' || config.mode === 'auto';
+    if (autonomous && config.sandbox === 'off') throw adapterError('TUIG_E_CONFIG');
+    const sandbox =
+      config.sandbox === 'off'
+        ? null
+        : options.sandbox === undefined
+          ? detectSandbox(options.platform ?? process.platform)
+          : options.sandbox;
+    if (autonomous && !sandbox) throw adapterError('TUIG_E_SANDBOX');
     let instruction = options.instruction;
     if (options.taskId) {
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.taskId)) throw adapterError('TUIG_E_USAGE');
@@ -182,8 +194,17 @@ export async function runCommand(options: {
     const result = await control({
       root: workspace.path,
       store,
-      start: { workspace: { branch, base: workspace.base }, mode: config.mode },
-      policy: { mode: config.mode, rules: config.policy?.rules ?? [], passEnv },
+      start: {
+        workspace: { branch, base: workspace.base },
+        mode: config.mode,
+        sandbox: sandbox?.kind ?? 'none',
+      },
+      policy: {
+        mode: config.mode,
+        rules: config.policy?.rules ?? [],
+        passEnv,
+        ...(sandbox ? { sandbox } : {}),
+      },
       ...(approver ? { approver } : {}),
       beforeTurn: (turn) => {
         appendEvent(store, 'checkpoint', { turn, ...checkpoint(workspace, turn) });
@@ -204,7 +225,7 @@ export async function runCommand(options: {
             check.argv,
             '.',
             (check.timeoutSec ?? 10) * 1000,
-            { passEnv },
+            { passEnv, ...(sandbox ? { sandbox } : {}) },
           );
           writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
           checks.push({ name: check.name, passed: result.status === 'ok' });

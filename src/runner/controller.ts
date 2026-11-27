@@ -4,6 +4,7 @@ import { recordingAdapter } from './adapter/recording.js';
 import type { Message, ModelAdapter, ToolDefinition } from './adapter/types.js';
 import type { ApprovalDecision, ApprovalRequest, Approver } from './approval.js';
 import type { Mode, PolicyRule } from '../engine/policy.js';
+import type { Sandbox } from '../sandbox/index.js';
 import { budgets, preflight, afterResponse, type Budgets, type Totals } from './budgets.js';
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
@@ -33,7 +34,7 @@ export type ControllerOptions = {
   /** Tool definitions sent with each request; replay supplies the recorded ones. */
   tools?: () => ToolDefinition[];
   /** Permission mode and repository rules for agent tool calls; defaults to ask. */
-  policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[] };
+  policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[]; sandbox?: Sandbox };
   /** Extra run_start fields, such as the workspace identity. */
   start?: Record<string, unknown>;
 };

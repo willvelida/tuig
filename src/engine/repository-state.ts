@@ -57,6 +57,10 @@ export function validateConfig(value: unknown): string[] {
   // There is no bypass-everything mode: only the four ladder modes exist.
   if (!(MODES as readonly string[]).includes(String(value.mode)))
     errors.push('mode must be plan, ask, auto-edit or auto.');
+  if (value.sandbox !== undefined && !['auto', 'off'].includes(String(value.sandbox)))
+    errors.push('sandbox must be auto or off.');
+  if (value.sandbox === 'off' && ['auto-edit', 'auto'].includes(String(value.mode)))
+    errors.push('sandbox off is only allowed in plan or ask mode.');
   const policy = value.policy;
   if (policy !== undefined) {
     const flag = (item: unknown): boolean =>

@@ -5,6 +5,10 @@ export const ERRORS = {
     message: 'Run base has uncommitted changes.',
     fix: 'Review and commit or otherwise preserve your changes before starting a run.',
   },
+  TUIG_E_SANDBOX: {
+    message: 'A working OS sandbox is required for this mode but none is available.',
+    fix: 'Install bubblewrap (Linux) or use sandbox-exec (macOS), confirm with tuig doctor, or use mode ask.',
+  },
   TUIG_E_WORKSPACE: {
     message: 'Run workspace could not be created or used safely.',
     fix: 'Ensure .tuig/temp/ is gitignored and committed (tuig init adds it), that no tuig/run-<id> branch or worktree already exists, then retry.',

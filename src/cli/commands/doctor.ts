@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { envelope, type Envelope } from '../envelope.js';
 import { cliError } from '../errors.js';
 import { CLI_NAME } from '../name.js';
+import { detectSandbox } from '../../sandbox/index.js';
 import {
   git,
   repositoryIdentity,
@@ -57,8 +58,24 @@ export function doctor(
   }
   if (platform === 'darwin' || platform === 'linux') {
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap';
-    const r = checkTool(name, platform === 'darwin' ? ['-h'] : ['--version'], cwd);
-    add('sandbox', r.ok, r.detail, 'Install or enable ' + name + ' before sandboxed runs.');
+    // Without an injected probe, check that the sandbox actually confines a command, not just that it exists.
+    const working = options.probe ? null : detectSandbox(platform);
+    const r = options.probe
+      ? checkTool(name, platform === 'darwin' ? ['-h'] : ['--version'], cwd)
+      : {
+          ok: working !== null,
+          detail: working
+            ? working.kind + ' at ' + working.executable
+            : 'Unavailable or not working',
+        };
+    add(
+      'sandbox',
+      r.ok,
+      r.detail,
+      'Install or enable ' +
+        name +
+        ' before auto-edit or auto runs (they refuse to run without it).',
+    );
   }
   let root: string;
   try {

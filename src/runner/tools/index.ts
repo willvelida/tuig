@@ -8,6 +8,7 @@ import { runProcess } from './run.js';
 import { abortWithReason } from './abort.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
 import { resolveTarget, workspacePath } from './paths.js';
+import type { Sandbox } from '../../sandbox/index.js';
 import { realpathSync } from 'node:fs';
 import {
   describeCommand,
@@ -94,6 +95,8 @@ export type ToolOptions = {
   passEnv?: string[];
   /** Cancels a running tool by terminating its process group. */
   signal?: AbortSignal;
+  /** OS sandbox for run commands, when available or required. */
+  sandbox?: Sandbox;
 };
 function lineCount(text: string): number {
   return text === '' ? 0 : text.split('\n').length;
@@ -221,6 +224,7 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
             {
               ...(options.signal ? { signal: options.signal } : {}),
               ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+              ...(options.sandbox ? { sandbox: options.sandbox } : {}),
             },
           );
           output = result.output;

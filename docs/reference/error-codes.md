@@ -5,6 +5,7 @@ Generated from src/cli/errors.ts. Run npm run docs:errors to regenerate.
 | Code | Message | Fix |
 |---|---|---|
 | TUIG_E_DIRTY | Run base has uncommitted changes. | Review and commit or otherwise preserve your changes before starting a run. |
+| TUIG_E_SANDBOX | A working OS sandbox is required for this mode but none is available. | Install bubblewrap (Linux) or use sandbox-exec (macOS), confirm with tuig doctor, or use mode ask. |
 | TUIG_E_WORKSPACE | Run workspace could not be created or used safely. | Ensure .tuig/temp/ is gitignored and committed (tuig init adds it), that no tuig/run-<id> branch or worktree already exists, then retry. |
 | TUIG_E_ORACLE_REVIEW | Task oracle has not been reviewed. | Have the human review the oracle and record oracleReviewed: true before using this task. |
 | TUIG_E_EGRESS_DENIED | Model endpoint is not allow-listed. | Review and add the exact base URL to models.allowedEndpoints, or use a local endpoint. |

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SAFE_GIT_ENV } from '../../engine/git.js';
 import { workspacePath } from './paths.js';
+import { sandboxArgv, sandboxSpec, type Sandbox } from '../../sandbox/index.js';
 
 export type ProcessResult = {
   output: string;
@@ -18,6 +19,8 @@ export type ProcessOptions = {
   passEnv?: string[];
   /** Time between SIGTERM and SIGKILL for the group. */
   graceMs?: number;
+  /** OS sandbox confining the command to the worktree and its temporary home. */
+  sandbox?: Sandbox;
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -67,7 +70,14 @@ export async function runProcess(
         exitCode: number | null = null,
         spawnError: Error | null = null,
         settled = false;
-      const child = spawn(argv[0]!, argv.slice(1), {
+      const command = options.sandbox
+        ? sandboxArgv(
+            options.sandbox,
+            sandboxSpec({ cwd: dir, writable: [workspacePath(root, '.'), home] }),
+            argv,
+          )
+        : argv;
+      const child = spawn(command[0]!, command.slice(1), {
         cwd: dir,
         env: minimalEnv(home, options.passEnv),
         detached: true,
