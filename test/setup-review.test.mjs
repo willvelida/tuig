@@ -347,25 +347,31 @@ test('setup review: resumed run never reruns setup or replaces its baseline', as
 });
 
 test('setup review: passEnv reaches setup but recorded output and argv are redacted', async (t) => {
-  const previous = process.env.SETUP_REVIEW_VALUE;
-  process.env.SETUP_REVIEW_VALUE = 'synthetic-review-value';
+  const previous = process.env.SETUP_REVIEW_SECRET;
+  const oldNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'test';
   t.after(() => {
-    if (previous === undefined) delete process.env.SETUP_REVIEW_VALUE;
-    else process.env.SETUP_REVIEW_VALUE = previous;
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
+  });
+  process.env.SETUP_REVIEW_SECRET = 'synthetic-review-value';
+  t.after(() => {
+    if (previous === undefined) delete process.env.SETUP_REVIEW_SECRET;
+    else process.env.SETUP_REVIEW_SECRET = previous;
   });
   const f = fixture(t, {
     setup: [
       {
         name: 'environment',
         argv: node(
-          "if(process.env.SETUP_REVIEW_VALUE!=='synthetic-review-value')process.exit(9);console.log(process.env.SETUP_REVIEW_VALUE)",
+          "if(process.env.SETUP_REVIEW_SECRET!=='synthetic-review-value')process.exit(9);console.log(process.env.SETUP_REVIEW_SECRET)",
         ),
       },
     ],
   });
   const path = join(f.repo, '.tuig/config.json');
   const config = JSON.parse(readFileSync(path, 'utf8'));
-  config.policy.passEnv = ['SETUP_REVIEW_VALUE'];
+  config.policy.passEnv = ['SETUP_REVIEW_SECRET', 'NODE_ENV'];
   writeFileSync(path, JSON.stringify(config));
   const result = await f.run();
   assert.equal(result.data.state, 'SUCCEEDED', JSON.stringify(result));
@@ -373,6 +379,11 @@ test('setup review: passEnv reaches setup but recorded output and argv are redac
   assert.equal(JSON.stringify(result).includes('synthetic-review-value'), false);
   const r = record(f, result);
   assert.equal(JSON.stringify(r).includes('synthetic-review-value'), false);
+  assert.equal(
+    r.summary.testTamperAttempts,
+    0,
+    'non-secret passEnv values must not corrupt record keys',
+  );
   const log = readFileSync(
     join(f.repo, '.tuig/runs', result.data.id, result.data.setup.commands[0].log),
     'utf8',

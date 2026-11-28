@@ -106,7 +106,7 @@ exempt. `tuig checks` runs checks only and does not execute setup.
 For an offline npm install, fully populate a cache beforehand, including every
 locked package tarball, using the same npm/lockfile versions. To avoid writes to a
 read-only external seed cache, set `TUIG_NPM_CACHE_SEED` to its absolute path and
-`npm_config_cache` to `.tuig/offline-npm-cache` in the parent environment. Add both
+`npm_config_cache` to `.tuig/temp/offline-npm-cache` in the parent environment. Add both
 names to policy.passEnv and use this setup (the first command copies the existing
 seed into the writable worktree; fresh HOME is not shared between commands):
 
@@ -116,7 +116,7 @@ seed into the writable worktree; fresh HOME is not shared between commands):
   "setup": [
     {
       "name": "copy offline cache",
-      "argv": ["node", "-e", "require('node:fs').cpSync(process.env.TUIG_NPM_CACHE_SEED,'.tuig/offline-npm-cache',{recursive:true})"],
+      "argv": ["node", "-e", "require('node:fs').cpSync(process.env.TUIG_NPM_CACHE_SEED,'.tuig/temp/offline-npm-cache',{recursive:true})"],
       "timeoutSec": 60
     },
     {

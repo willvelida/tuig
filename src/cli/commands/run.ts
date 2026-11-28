@@ -218,7 +218,7 @@ export async function runCommand(options: {
       (name) => name !== config.models.apiKeyEnv,
     );
     const store = createRecord(root, id, {
-      sensitiveEnv: [...passEnv, ...(config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [])],
+      sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
     });
     const identity = savedIdentity ?? workspaceIdentity(workspace);
     const setupSandbox =
