@@ -90,7 +90,15 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           ? Number((start.data.budgets as Budgets).wallSeconds) * 1000
           : 0,
       ...(start.data.resume
-        ? { resume: { conversation: [], totals: (start.data.resume as { totals: Totals }).totals } }
+        ? {
+            resume: {
+              conversation: [],
+              totals: (start.data.resume as { totals: Totals }).totals,
+              ...((start.data.resume as { repaired?: Record<string, number> }).repaired
+                ? { repaired: (start.data.resume as { repaired: Record<string, number> }).repaired }
+                : {}),
+            },
+          }
         : {}),
       start: Object.fromEntries(
         Object.entries(start.data).filter(

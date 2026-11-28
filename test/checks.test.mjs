@@ -196,18 +196,20 @@ test('structured diagnostics enforce count and message bounds', () => {
     )[0].message.length,
     8192,
   );
-  assert.throws(() =>
-    parseDiagnostics(
-      'eslint-json',
-      'eslint',
-      JSON.stringify([
-        {
-          filePath: 'a',
-          messages: Array.from({ length: 1001 }, () => ({ severity: 2, message: 'x' })),
-        },
-      ]),
-    ),
+  const retained = parseDiagnostics(
+    'eslint-json',
+    'eslint',
+    JSON.stringify([
+      {
+        filePath: 'a',
+        messages: Array.from({ length: 1001 }, () => ({ severity: 2, message: 'x' })),
+      },
+    ]),
   );
+  assert.equal(retained.length, 1001);
+  assert.equal(retained[999].message, 'x');
+  assert.equal(retained[1000].severity, 'error');
+  assert.match(retained[1000].message, /truncated/);
 });
 test('tsc supports global diagnostics and multiline messages; ESLint warnings stay warnings', () => {
   const parsed = parseDiagnostics(

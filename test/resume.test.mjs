@@ -30,7 +30,7 @@ const call = (id, name, args) => ({ id, name, arguments: args });
 const read = (id, path) => call(id, 'read_file', { path });
 
 /** Trusted repository with a replay agent; each step is a list of tool calls ([] means a tool-less reply). */
-function fixture(t, steps, { check, allowed = [] } = {}) {
+function fixture(t, steps, { check, allowed = [], kind } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'tuig-resume-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = { ...process.env, XDG_CONFIG_HOME: join(root, 'state'), TUIG_OUTPUT: 'json' };
@@ -88,7 +88,7 @@ function fixture(t, steps, { check, allowed = [] } = {}) {
     join(repo, '.tuig/checks.json'),
     JSON.stringify({
       schema_version: 1,
-      checks: [{ name: 'visible', argv: checkArgv, timeoutSec: 20 }],
+      checks: [{ name: 'visible', argv: checkArgv, timeoutSec: 20, ...(kind ? { kind } : {}) }],
     }),
   );
   git(['add', '.']);
@@ -150,7 +150,7 @@ test('replayed loops of each stuck pattern end in STUCK and replay identically',
       {},
       /same error 3/,
     ],
-    ['monologue', [[], [], []], { check: failing }, /without tool calls 3/],
+    ['monologue', [[], [], []], { check: failing, kind: 'repair' }, /without tool calls 3/],
     [
       'ping-pong',
       Array.from({ length: 6 }, (_, i) => [read('p' + i, i % 2 ? 'b.txt' : 'a.txt')]),

@@ -211,6 +211,10 @@ export function parseDiagnostics(
       }
     }
   }
-  if (out.length > MAX_DIAGNOSTICS) throw new Error('Report exceeds 1000 diagnostics.');
+  if (out.length > MAX_DIAGNOSTICS)
+    out = [
+      ...out.slice(0, MAX_DIAGNOSTICS),
+      diagnostic(tool, 'Diagnostic list truncated after 1000 entries.'),
+    ];
   return out;
 }

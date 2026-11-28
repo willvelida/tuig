@@ -7,11 +7,12 @@ import { search } from './search.js';
 import { runProcess } from './run.js';
 import { executeChecks } from '../../checks/execute.js';
 import type { Check } from '../../checks/config.js';
+import { lintChecks, lintUnavailable, newErrors } from '../../checks/lint-edit.js';
 import { abortWithReason } from './abort.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
 import { resolveTarget, workspacePath } from './paths.js';
 import type { Sandbox } from '../../sandbox/index.js';
-import { realpathSync } from 'node:fs';
+import { realpathSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   describeCommand,
   evaluate,
@@ -69,7 +70,15 @@ const validators = Object.fromEntries(
 );
 export type ToolResult = {
   id: string;
-  status: 'ok' | 'invalid_args' | 'policy_denied' | 'nonzero_exit' | 'timeout' | 'cancelled';
+  status:
+    | 'ok'
+    | 'invalid_args'
+    | 'policy_denied'
+    | 'nonzero_exit'
+    | 'timeout'
+    | 'cancelled'
+    | 'lint_rejected'
+    | 'lint_failed';
   output: string;
   log: string;
   aborted?: string;
@@ -216,12 +225,68 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
               lineCount(args.replace as string) +
               ' lines',
           });
+          const checks = lintChecks(options.checks ?? [], target.rel);
+          const runLint = () =>
+            executeChecks(
+              options.root,
+              checks,
+              {
+                ...(options.signal ? { signal: options.signal } : {}),
+                ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+                ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+              },
+              (check) =>
+                enforce(
+                  {
+                    ...options,
+                    allowedCommands: [
+                      ...(options.allowedCommands ?? []),
+                      ...checks.map((c) => c.argv),
+                    ],
+                  },
+                  describeCommand(check.argv, options.root),
+                  { id: call.id, tool: 'run_checks', cwd: '.', argv: check.argv },
+                ),
+            );
+          const before = checks.length ? await runLint() : undefined;
+          if (before && lintUnavailable(before.checks)) {
+            status = 'lint_failed';
+            output = JSON.stringify({
+              message: 'Pre-edit lint unavailable; edit not applied.',
+              checks: before.checks,
+            });
+            break;
+          }
+          const bytes = readFileSync(target.file);
           output = edit(
             target.file,
             args.path as string,
             args.search as string,
             args.replace as string,
           );
+          if (before) {
+            // Restore exact bytes on every inconclusive or rejected post-edit check.
+            let accepted = false;
+            try {
+              const after = await runLint();
+              const diagnostics = newErrors(before.checks, after.checks);
+              if (lintUnavailable(after.checks)) {
+                status = 'lint_failed';
+                output = JSON.stringify({
+                  message: 'Post-edit lint unavailable; edit restored.',
+                  checks: after.checks,
+                });
+              } else if (diagnostics.length) {
+                status = 'lint_rejected';
+                output = JSON.stringify({
+                  message: 'Edit restored: new lint errors.',
+                  diagnostics,
+                });
+              } else accepted = true;
+            } finally {
+              if (!accepted) writeFileSync(target.file, bytes);
+            }
+          }
           break;
         }
         case 'git': {

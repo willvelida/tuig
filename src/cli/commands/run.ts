@@ -214,11 +214,20 @@ export async function runCommand(options: {
                 checkpoint: point.checkpoint,
                 discarded: point.discarded,
                 totals: point.totals,
+                repaired: point.repaired,
               },
             }
           : {}),
       },
-      ...(point ? { resume: { conversation: point.conversation, totals: point.totals } } : {}),
+      ...(point
+        ? {
+            resume: {
+              conversation: point.conversation,
+              totals: point.totals,
+              repaired: point.repaired,
+            },
+          }
+        : {}),
       policy: {
         mode: config.mode,
         rules: config.policy?.rules ?? [],
@@ -249,7 +258,7 @@ export async function runCommand(options: {
               writeArtifact(store, 'tool-logs/check-' + sequence + '.log', output);
             },
           );
-          checks.push({ name: check.name, passed: result.passed });
+          checks.push(result);
         }
         return { checks };
       },
