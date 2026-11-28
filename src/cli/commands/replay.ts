@@ -179,6 +179,7 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
             'approval_decided',
             'test_tamper',
             'oracle_result',
+            'secret_gate',
             'policy_denied',
           ].includes(next()?.type ?? '')
         ) {

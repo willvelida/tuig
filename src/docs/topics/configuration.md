@@ -1,5 +1,32 @@
 # Configuration and trust
 
+`secretGate` is `required` in new init templates. It runs an external gitleaks
+scanner after the agent loop, before protected-test approval and the final oracle.
+Install gitleaks yourself on PATH; tuig never bundles or downloads it. Findings
+block success with FAILED_VALIDATION. Missing tools, timeout, crashes and invalid
+reports produce ERROR with TUIG_E_PREREQUISITE and installation/retry instructions.
+The scanner has a ten-second timeout, uses the trusted subprocess environment and
+configured OS sandbox, and cannot receive credentials through passEnv.
+
+Explicit `secretGate: "off"` disables the gate. Missing fields retain legacy
+behaviour (disabled); both cases are visible in the run summary and degrade doctor.
+Doctor also degrades if gitleaks is missing. A working tool with an unparseable
+version is reported as available with version unknown.
+
+The gate scans complete resulting files changed from the run base, including
+committed and non-ignored untracked changes in diff.patch. Ignored files are
+excluded consistently with the result diff, even though the protected-test gate
+and oracle snapshot have a broader ignored-file view. Deleted files and unchanged
+history are excluded. A pre-existing secret in a changed file also blocks success.
+Repository scanner configurations, ignore files and inline gitleaks suppression
+comments cannot disable this gate. Only rule, original file, line and a redacted
+marker are recorded; scanner output and private reports are discarded.
+
+Existing redaction protects known credential formats in earlier agent messages
+and tool records. Other formats recognized only by gitleaks can still occur in
+the agent's own earlier edit arguments; final scanning does not retroactively
+redact those records. It never forwards scanner matches or secrets to the model.
+
 Initialization is detected by .tuig/config.json at the Git root. doctor reads configuration only after trust. The initial format has schema_version: 1, mode: plan|ask|auto-edit|auto, and models.allowedEndpoints as an array of HTTP(S) URLs. Additional configuration fields will be added with their implementing steps.
 
 Trust is stored in XDG_CONFIG_HOME/tuig/trusted.json, or ~/.config/tuig/trusted.json when XDG_CONFIG_HOME is unset. Format: schema_version: 1 and repositories: an array of records with path (canonical absolute Git root) and rootCommit (root commit hash). All root commits must match in repositories with multiple histories. A repository-local trust value has no authority.

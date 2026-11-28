@@ -8,6 +8,29 @@
     "claims"
   ],
   "properties": {
+    "secretGate": {
+      "type": "object",
+      "required": ["status", "enabled", "findings"],
+      "properties": {
+        "status": { "enum": ["disabled", "not_evaluated", "pass", "fail", "infrastructure_error"] },
+        "enabled": { "type": "boolean" },
+        "code": { "const": "TUIG_E_PREREQUISITE" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "file", "line", "marker"],
+            "properties": {
+              "rule": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 },
+              "marker": { "const": "[REDACTED]" }
+            }
+          }
+        }
+      }
+    },
     "testTamperAttempts": { "type": "integer", "minimum": 0 },
     "taskVerdict": {
       "type": "object",

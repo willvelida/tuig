@@ -62,7 +62,12 @@ function fixture(t) {
     mkdirSync(join(repo, '.tuig'));
     writeFileSync(
       join(repo, '.tuig', 'config.json'),
-      JSON.stringify({ schema_version: 1, mode: 'ask', models: { allowedEndpoints: [] } }),
+      JSON.stringify({
+        schema_version: 1,
+        mode: 'ask',
+        secretGate: 'required',
+        models: { allowedEndpoints: [] },
+      }),
     );
     const identity = repositoryIdentity(repo);
     mkdirSync(join(base, 'state', 'tuig'), { recursive: true });

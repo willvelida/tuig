@@ -44,6 +44,7 @@ function fixture(t) {
   initialize(repo);
   const configPath = join(repo, '.tuig/config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  config.secretGate = 'off';
   config.models = { ...config.models, adapter: 'replay', replayFile: 'responses.jsonl' };
   const responses = [
     {

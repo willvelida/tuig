@@ -52,9 +52,17 @@ export function doctor(
     ['bun', ['--version'], 'Install Bun to compile standalone executables.'],
     ['git', ['--version'], 'Install Git.'],
     ['rg', ['--version'], 'Install ripgrep.'],
+    ['gitleaks', ['version'], 'Install gitleaks on PATH; it is never downloaded automatically.'],
   ] as const) {
     const r = checkTool(name, [...argv], cwd);
-    add(name, r.ok, r.detail, fix);
+    add(
+      name,
+      r.ok,
+      name === 'gitleaks' && r.ok && !/\b\d+\.\d+\.\d+\b/.test(r.detail)
+        ? 'Available (version unknown)'
+        : r.detail,
+      fix,
+    );
   }
   if (platform === 'darwin' || platform === 'linux') {
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap';
@@ -112,7 +120,8 @@ export function doctor(
         { status: 'unconfigured', error, next_action: CLI_NAME + ' trust' },
       );
     }
-    const errors = validateConfig(JSON.parse(readFileSync(configPath, 'utf8')) as unknown);
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    const errors = validateConfig(config);
     add(
       'config',
       errors.length === 0,
@@ -120,6 +129,14 @@ export function doctor(
       'Repair ' + configPath,
     );
     if (errors.length) throw new Error(errors.join(' '));
+    add(
+      'secret gate',
+      config.secretGate === 'required',
+      config.secretGate === 'required'
+        ? 'Required.'
+        : 'Disabled (including legacy configurations).',
+      'Set secretGate to required in .tuig/config.json and install gitleaks on PATH.',
+    );
   } catch (cause) {
     const error = cliError('TUIG_E_CONFIG', cause instanceof Error ? cause.message : String(cause));
     return envelope('doctor', { checks }, { status: 'error', error, next_action: error.fix });

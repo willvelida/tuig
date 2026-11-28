@@ -53,6 +53,12 @@ export function isTrusted(
 export function validateConfig(value: unknown): string[] {
   if (!object(value)) return ['Configuration must be an object.'];
   const errors: string[] = [];
+  if (
+    value.secretGate !== undefined &&
+    value.secretGate !== 'required' &&
+    value.secretGate !== 'off'
+  )
+    errors.push('secretGate must be required or off.');
   if (value.schema_version !== 1) errors.push('schema_version must be 1.');
   // There is no bypass-everything mode: only the four ladder modes exist.
   if (!(MODES as readonly string[]).includes(String(value.mode)))

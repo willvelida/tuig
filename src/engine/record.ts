@@ -22,6 +22,7 @@ export const EVENT_TYPES = [
   'sensor_result',
   'test_tamper',
   'oracle_result',
+  'secret_gate',
   'approval_requested',
   'approval_decided',
   'policy_denied',

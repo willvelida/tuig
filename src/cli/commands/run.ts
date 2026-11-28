@@ -50,6 +50,7 @@ import {
   ProtectionError,
 } from '../../engine/protected-tests.js';
 import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
+import { secretGate, SECRET_GATE_FIX, type SecretGateResult } from '../../engine/secret-gate.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -59,6 +60,7 @@ type Config = {
   tasksDir?: string;
   syntheticFixture?: boolean;
   protectedTests?: string[];
+  secretGate?: 'required' | 'off';
 };
 export function rootAt(cwd: string): string {
   return realpathSync(git(['rev-parse', '--show-toplevel'], cwd));
@@ -217,6 +219,11 @@ export async function runCommand(options: {
     );
     let taskVerdict: TaskVerdict = { verdict: 'not_evaluated', source: 'hidden_oracle' };
     let protectionError: ReturnType<typeof cliError> | undefined;
+    let secretResult: SecretGateResult = {
+      enabled: config.secretGate === 'required',
+      status: config.secretGate === 'required' ? 'not_evaluated' : 'disabled',
+      findings: [],
+    };
     const result = await control({
       root: workspace.path,
       store,
@@ -224,6 +231,7 @@ export async function runCommand(options: {
         workspace: { id: workspace.id, branch, base: workspace.base },
         mode: config.mode,
         sandbox: sandbox?.kind ?? 'none',
+        secretGate: config.secretGate ?? 'legacy-off',
         task: { taskId, instruction },
         ...(point
           ? {
@@ -268,6 +276,20 @@ export async function runCommand(options: {
       checks: checkConfig.checks,
       protectedTests: testPatterns,
       finalize: async (eligible) => {
+        if (eligible && config.secretGate === 'required') {
+          secretResult = await secretGate(workspace, sandbox ? { sandbox } : {});
+          appendEvent(store, 'secret_gate', secretResult);
+          if (secretResult.status === 'infrastructure_error') {
+            protectionError = {
+              code: 'TUIG_E_PREREQUISITE',
+              message: 'The required secret gate could not complete.',
+              fix: SECRET_GATE_FIX,
+            };
+            return { passed: false, infrastructure: true, reason: 'Secret gate unavailable' };
+          }
+          if (secretResult.status !== 'pass')
+            return { passed: false, reason: 'Secret gate detected credentials in result files' };
+        }
         try {
           if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
             return { passed: false, reason: 'Protected test changes denied' };
@@ -326,6 +348,7 @@ export async function runCommand(options: {
       ...location,
       taskId,
       taskVerdict,
+      secretGate: secretResult,
       ...(protectionError ? { protectionError } : {}),
       testTamperAttempts: readRun(store)
         .events.filter((e) => e.type === 'test_tamper')
@@ -337,6 +360,7 @@ export async function runCommand(options: {
       ...location,
       ...result,
       taskVerdict,
+      secretGate: secretResult,
       ...(protectionError ? { protectionError } : {}),
     };
     return result.state === 'SUCCEEDED'

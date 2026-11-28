@@ -2,6 +2,7 @@
   "schema_version": 1,
   "requiredVersion": "0.1.0",
   "mode": "ask",
+  "secretGate": "required",
   "protectedTests": ["test/**", "tests/**", "tests-visible/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/conftest.py", "**/pytest.ini", "**/.pytest.ini", "**/pyproject.toml", "**/tox.ini", "**/setup.cfg"],
   "budgets": {
     "requests": 100,

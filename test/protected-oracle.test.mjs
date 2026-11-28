@@ -288,6 +288,7 @@ test(
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
     config.models = { ...config.models, adapter: 'replay', replayFile: 'responses.jsonl' };
     config.sandbox = 'off';
+    config.secretGate = 'off';
     config.protectedTests = ['tests/**'];
     writeFileSync(configPath, JSON.stringify(config));
     const argv = [process.execPath, '-e', 'process.exit(0)'];

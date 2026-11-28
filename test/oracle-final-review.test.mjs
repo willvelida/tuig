@@ -126,6 +126,7 @@ test(
         initialize(f.repo);
         const configPath = join(f.repo, '.tuig', 'config.json');
         const config = JSON.parse(readFileSync(configPath, 'utf8'));
+        config.secretGate = 'off';
         config.models = { ...config.models, adapter: 'replay', replayFile: 'responses.jsonl' };
         config.sandbox = 'off';
         config.protectedTests = ['node_modules/**'];
