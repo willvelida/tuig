@@ -41,6 +41,12 @@ their unconditional refusal. A self-hosted summary records the pinned version,
 hash and sorted unique protectedPathsTouched, including denied edit attempts
 recorded by test_tamper. Offline replay copies this host-owned evidence without
 executing the binary. Setup failures carry an empty touched list.
+Final-diff attribution also runs independently of approval events: an earlier
+secret-gate failure or adapter error must not hide protected subprocess/check
+writes from the summary. Persist attempted-path pin evidence before this bounded
+audit so an infrastructure error cannot erase the selfHost block. The existing
+redactor still governs summary paths, with the same format limitations as the
+existing diff artifact; this is not a new secret-detection mechanism.
 
 checks --binary-under-test validates a regular executable with a bounded --version
 probe. Trusted argv entries exactly equal to {binary-under-test} are replaced with

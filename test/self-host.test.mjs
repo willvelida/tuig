@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { delimiter } from 'node:path';
 import { initialize } from '../dist/engine/init.js';
 import { trustRepository } from '../dist/engine/trust.js';
 import { doctor } from '../dist/cli/commands/doctor.js';
@@ -140,6 +141,23 @@ function setPin(f, file) {
   f.git(['tag', 'test-pin']);
   f.config.selfHost = { pinnedVersion: 'test-pin', pinnedSha256: binaryHash(file) };
   f.save();
+}
+function compileHarness(f, file) {
+  let entry = resolve('dist/main.js');
+  if (process.platform === 'win32') {
+    // Exercise the real run handler on Windows, whose production CLI requires WSL.
+    entry = join(f.dir, 'harness.ts');
+    writeFileSync(
+      entry,
+      'import {runCommand} from ' +
+        JSON.stringify(resolve('dist/cli/commands/run.js').replaceAll('\\', '/')) +
+        ';\n' +
+        'if(process.argv.includes("--build-identity")) console.log(' +
+        JSON.stringify(JSON.stringify(identity(f))) +
+        '); else console.log(JSON.stringify(await runCommand({platform:"linux",instruction:"Synthetic replay only.",interactive:false})));',
+    );
+  }
+  compile(entry, file, identity(f));
 }
 
 test('self host doctor verifies hash, external path and clean tagged identity; source run refuses', async (t) => {
@@ -345,21 +363,7 @@ for (const path of ['src/engine/policy.ts', 'fixtures/example/tests-hidden/test_
         responses.map((r) => JSON.stringify(r)).join('\n') + '\n',
       );
       f.commit();
-      let entry = resolve('dist/main.js');
-      if (process.platform === 'win32') {
-        // Exercise the real run handler on Windows, whose production CLI requires WSL.
-        entry = join(f.dir, 'harness.ts');
-        writeFileSync(
-          entry,
-          'import {runCommand} from ' +
-            JSON.stringify(resolve('dist/cli/commands/run.js').replaceAll('\\', '/')) +
-            ';\n' +
-            'if(process.argv.includes("--build-identity")) console.log(' +
-            JSON.stringify(JSON.stringify(identity(f))) +
-            '); else console.log(JSON.stringify(await runCommand({platform:"linux",instruction:"Synthetic replay only.",interactive:false})));',
-        );
-      }
-      compile(entry, file, identity(f));
+      compileHarness(f, file);
       setPin(f, file);
       // Pin config belongs to a later commit, so the pin remains the previous release.
       f.commit();
@@ -385,3 +389,86 @@ for (const path of ['src/engine/policy.ts', 'fixtures/example/tests-hidden/test_
     },
   );
 }
+
+test(
+  'self host final diff records protected writes after an earlier gate error',
+  { timeout: 60000 },
+  async (t) => {
+    const f = fixture(t),
+      file = pinFile();
+    const scannerDir = join(f.dir, 'scanner');
+    mkdirSync(scannerDir);
+    const scannerEntry = join(f.dir, 'scanner.js');
+    writeFileSync(scannerEntry, 'process.exit(9)');
+    compile(
+      scannerEntry,
+      join(scannerDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks'),
+    );
+    const path = 'src/engine/policy.ts';
+    mkdirSync(join(f.repo, path, '..'), { recursive: true });
+    writeFileSync(join(f.repo, path), 'old\n');
+    f.config.models = { adapter: 'replay', allowedEndpoints: [], replayFile: 'responses.jsonl' };
+    f.save();
+    writeFileSync(
+      join(f.repo, 'responses.jsonl'),
+      JSON.stringify({
+        type: 'model_response',
+        data: {
+          step: 0,
+          response: {
+            message: 'Done.',
+            toolCalls: [],
+            usage: { input: 1, cached: 0, output: 1, reasoning: 0, cost: 0 },
+            stopReason: 'stop',
+          },
+        },
+      }) + '\n',
+    );
+    writeFileSync(
+      join(f.repo, '.tuig/checks.json'),
+      JSON.stringify({
+        schema_version: 1,
+        checks: [
+          {
+            name: 'synthetic check write',
+            argv: [
+              process.execPath,
+              '-e',
+              'require("node:fs").writeFileSync(' + JSON.stringify(path) + ',"new\\n")',
+            ],
+          },
+        ],
+      }),
+    );
+    f.commit();
+    compileHarness(f, file);
+    setPin(f, file);
+    f.commit();
+    const result = JSON.parse(
+      exec(file, ['run', '--instruction', 'Synthetic replay only.'], {
+        cwd: f.repo,
+        env: {
+          ...process.env,
+          PATH: scannerDir + delimiter + process.env.PATH,
+          TUIG_OUTPUT: 'json',
+        },
+      }).stdout,
+    );
+    assert.equal(result.data.state, 'ERROR', JSON.stringify(result));
+    const record = join(f.repo, '.tuig/runs', result.data.id);
+    const summary = JSON.parse(readFileSync(join(record, 'summary.json'), 'utf8'));
+    assert.equal(summary.secretGate.status, 'infrastructure_error');
+    assert.deepEqual(summary.selfHost.protectedPathsTouched, [path]);
+    assert.equal(readFileSync(join(result.data.worktree, path), 'utf8'), 'new\n');
+    const events = readFileSync(join(record, 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(JSON.parse);
+    assert.equal(
+      events.filter((e) => e.type === 'test_tamper').length,
+      0,
+      'The earlier gate must have prevented the approval path',
+    );
+    assert.equal((await replayRun(result.data.id, f.repo)).status, 'ok');
+  },
+);

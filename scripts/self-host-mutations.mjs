@@ -4,6 +4,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 const probes = [
   [
+    'independent final diff attribution',
+    'dist/cli/commands/run.js',
+    'const finalPaths = changedTests(workspace, testPatterns, protectionBaseline);',
+    'const finalPaths = [];',
+    'self host final diff',
+  ],
+  [
     'pin hash',
     'dist/engine/self-host.js',
     'binaryHash(file) !== pin.pinnedSha256',

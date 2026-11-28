@@ -47,6 +47,7 @@ import {
   approveTests,
   protectedTests,
   isProtectedTest,
+  changedTests,
   protectionState,
   restoreProtectionState,
   ProtectionError,
@@ -429,10 +430,6 @@ export async function runCommand(options: {
         return { checks };
       },
     });
-    if (!protectionError || protectionError.code !== 'TUIG_E_WORKSPACE') {
-      verifyWorkspace(workspace, identity);
-      writeArtifact(store, 'diff.patch', diffPatch(workspace));
-    }
     const summary = readRun(store).summary as Record<string, unknown>;
     const location = { branch, base: workspace.base, worktree: workspace.path };
     const selfHost = pin
@@ -456,6 +453,21 @@ export async function runCommand(options: {
           ].sort(),
         }
       : undefined;
+    // Preserve pin evidence even if bounded final-diff attribution cannot complete.
+    if (selfHost) writeSummary(store, { ...summary, selfHost });
+    if (!protectionError || protectionError.code !== 'TUIG_E_WORKSPACE') {
+      verifyWorkspace(workspace, identity);
+      if (selfHost) {
+        const finalPaths = changedTests(workspace, testPatterns, protectionBaseline);
+        selfHost.protectedPathsTouched = [
+          ...new Set([
+            ...selfHost.protectedPathsTouched,
+            ...finalPaths.filter((path) => isProtectedTest(path, selfPatterns)),
+          ]),
+        ].sort();
+      }
+      writeArtifact(store, 'diff.patch', diffPatch(workspace));
+    }
     writeSummary(store, {
       ...summary,
       id,
