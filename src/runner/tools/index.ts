@@ -9,6 +9,7 @@ import { executeChecks } from '../../checks/execute.js';
 import type { Check } from '../../checks/config.js';
 import { lintChecks, lintUnavailable, newErrors } from '../../checks/lint-edit.js';
 import { abortWithReason } from './abort.js';
+import { isProtectedTest } from '../../engine/protected-tests.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
 import { resolveTarget, workspacePath } from './paths.js';
 import type { Sandbox } from '../../sandbox/index.js';
@@ -99,6 +100,7 @@ export type ToolOptions = {
   allowedCommands?: string[][];
   /** Host-pinned visible checks; never reloaded from agent-editable workspace config. */
   checks?: Check[];
+  protectedTests?: string[];
   /** Asked for consequential actions. Absent means non-interactive: deny. */
   approve?: (request: ApprovalRequest) => ApprovalDecision;
   /** Permission mode; defaults to ask. */
@@ -111,6 +113,7 @@ export type ToolOptions = {
   signal?: AbortSignal;
   /** OS sandbox for run commands, when available or required. */
   sandbox?: Sandbox;
+  hiddenReadPaths?: string[];
 };
 function lineCount(text: string): number {
   return text === '' ? 0 : text.split('\n').length;
@@ -169,6 +172,17 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
     });
     const args = call.arguments;
     try {
+      if (
+        typeof args.path === 'string' &&
+        /(?:^|[\\/])(?:tests-hidden|summary\.json)(?:[\\/]|$)/i.test(args.path)
+      ) {
+        appendEvent(options.store, 'test_tamper', {
+          paths: [args.path],
+          source: 'reserved_path',
+          count: 1,
+        });
+        throw new Error('Hidden oracle and harness verdict paths are never agent-accessible.');
+      }
       switch (call.name) {
         case 'run_checks': {
           if (!options.checks?.length) throw new Error('No host-pinned visible checks configured.');
@@ -179,6 +193,7 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
               ...(options.signal ? { signal: options.signal } : {}),
               ...(options.passEnv ? { passEnv: options.passEnv } : {}),
               ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+              ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
             },
             (check) => {
               enforce(
@@ -213,18 +228,31 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
           break;
         case 'edit': {
           const target = resolveTarget(options.root, args.path as string, 'write');
-          enforce(options, facts('edit', { protected: target.rule }), {
-            id: call.id,
-            tool: 'edit',
-            cwd: '.',
-            path: target.rel,
-            diffStat:
-              '-' +
-              lineCount(args.search as string) +
-              ' +' +
-              lineCount(args.replace as string) +
-              ' lines',
-          });
+          const protectedTest =
+            isProtectedTest(target.rel, options.protectedTests ?? []) ||
+            isProtectedTest(args.path as string, options.protectedTests ?? []);
+          if (protectedTest)
+            appendEvent(options.store, 'test_tamper', {
+              paths: [target.rel],
+              source: 'edit',
+              count: 1,
+            });
+          enforce(
+            options,
+            facts('edit', { protected: protectedTest ? 'protected-tests' : target.rule }),
+            {
+              id: call.id,
+              tool: 'edit',
+              cwd: '.',
+              path: target.rel,
+              diffStat:
+                '-' +
+                lineCount(args.search as string) +
+                ' +' +
+                lineCount(args.replace as string) +
+                ' lines',
+            },
+          );
           const checks = lintChecks(options.checks ?? [], target.rel);
           const runLint = () =>
             executeChecks(
@@ -234,6 +262,7 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
                 ...(options.signal ? { signal: options.signal } : {}),
                 ...(options.passEnv ? { passEnv: options.passEnv } : {}),
                 ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+                ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
               },
               (check) =>
                 enforce(
@@ -328,6 +357,7 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
               ...(options.signal ? { signal: options.signal } : {}),
               ...(options.passEnv ? { passEnv: options.passEnv } : {}),
               ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+              ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
             },
           );
           output = result.output;

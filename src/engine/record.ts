@@ -20,6 +20,8 @@ export const EVENT_TYPES = [
   'tool_intent',
   'tool_call',
   'sensor_result',
+  'test_tamper',
+  'oracle_result',
   'approval_requested',
   'approval_decided',
   'policy_denied',

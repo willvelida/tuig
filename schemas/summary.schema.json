@@ -8,6 +8,16 @@
     "claims"
   ],
   "properties": {
+    "testTamperAttempts": { "type": "integer", "minimum": 0 },
+    "taskVerdict": {
+      "type": "object",
+      "required": ["verdict", "source"],
+      "properties": {
+        "verdict": { "enum": ["pass", "fail", "not_evaluated", "infrastructure_error"] },
+        "source": { "const": "hidden_oracle" },
+        "code": { "type": "string" }
+      }
+    },
     "schema_version": {
       "const": 1
     },

@@ -20,9 +20,14 @@ export type ControllerOptions = {
   adapter: ModelAdapter;
   messages: Message[];
   validate: () => Promise<ValidationResult>;
+  /** Final host-only gates, after the agent loop has ended. Never returns feedback to the model. */
+  finalize?: (
+    eligible: boolean,
+  ) => Promise<{ passed: boolean; infrastructure?: boolean; reason?: string }>;
   limits?: Partial<Budgets>;
   allowedCommands?: string[][];
   checks?: Check[];
+  protectedTests?: string[];
   signal?: AbortSignal;
   handleSIGINT?: boolean;
   now?: () => number;
@@ -39,7 +44,13 @@ export type ControllerOptions = {
   /** Tool definitions sent with each request; replay supplies the recorded ones. */
   tools?: () => ToolDefinition[];
   /** Permission mode and repository rules for agent tool calls; defaults to ask. */
-  policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[]; sandbox?: Sandbox };
+  policy?: {
+    mode: Mode;
+    rules: PolicyRule[];
+    passEnv?: string[];
+    sandbox?: Sandbox;
+    hiddenReadPaths?: string[];
+  };
   /** Continue an interrupted run: prior conversation and counters, carried over. */
   resume?: { conversation: Message[]; totals: Totals; repaired?: Record<string, number> };
   /** Extra run_start fields, such as the workspace identity. */
@@ -255,6 +266,7 @@ export async function control(
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],
                 ...(options.checks ? { checks: options.checks } : {}),
+                ...(options.protectedTests ? { protectedTests: options.protectedTests } : {}),
                 ...(options.policy ?? {}),
                 ...toolContext,
               });
@@ -297,7 +309,6 @@ export async function control(
         break;
       }
       if (!failed.length) {
-        move('succeed');
         break;
       }
       if (failed.some((check) => check.kind === 'gate')) {
@@ -321,6 +332,13 @@ export async function control(
       );
       conversation.push(feedback);
       move('repair');
+    }
+    const eligible = (state as State) === 'VALIDATING';
+    const final = await options.finalize?.(eligible);
+    if (eligible) {
+      if (final && !final.passed)
+        move(final.infrastructure ? 'error' : 'fail', final.reason ?? 'Final validation failed');
+      else move('succeed');
     }
   } catch {
     if (!TERMINAL.has(state))

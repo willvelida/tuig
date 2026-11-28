@@ -126,6 +126,7 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           const event = next()!;
           appendEvent(store, 'tool_intent', event.data);
         }
+        if (next()?.type === 'test_tamper') appendEvent(store, 'test_tamper', next()!.data);
         if (next()?.type === 'approval_requested') {
           if (!context.approve) throw adapterError('TUIG_E_REPLAY');
           context.approve(next()!.data.request as ApprovalRequest);
@@ -170,6 +171,23 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           throw adapterError('TUIG_E_REPLAY');
         }
         return { checks: event.data.checks as ValidationResult['checks'] };
+      },
+      finalize: async (eligible) => {
+        while (
+          ['approval_requested', 'approval_decided', 'test_tamper', 'oracle_result'].includes(
+            next()?.type ?? '',
+          )
+        ) {
+          const event = next()!;
+          appendEvent(store, event.type, event.data);
+        }
+        const event = next();
+        if (!eligible) return { passed: true };
+        return {
+          passed: event?.data.to === 'SUCCEEDED',
+          infrastructure: event?.data.to === 'ERROR',
+          reason: String(event?.data.reason ?? ''),
+        };
       },
     });
     writeArtifact(store, 'diff.patch', source.diff);

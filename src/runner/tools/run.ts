@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { SAFE_GIT_ENV } from '../../engine/git.js';
 import { workspacePath } from './paths.js';
 import { sandboxArgv, sandboxSpec, type Sandbox } from '../../sandbox/index.js';
@@ -22,6 +22,8 @@ export type ProcessOptions = {
   graceMs?: number;
   /** OS sandbox confining the command to the worktree and its temporary home. */
   sandbox?: Sandbox;
+  /** Host-only oracle directories denied to agent subprocesses and visible checks. */
+  hiddenReadPaths?: string[];
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -72,13 +74,20 @@ export async function runProcess(
         exitCode: number | null = null,
         spawnError: Error | null = null,
         settled = false;
-      const command = options.sandbox
-        ? sandboxArgv(
-            options.sandbox,
-            sandboxSpec({ cwd: dir, writable: [workspacePath(root, '.'), home] }),
-            argv,
-          )
-        : argv;
+      const spec = sandboxSpec({ cwd: dir, writable: [workspacePath(root, '.'), home] });
+      const inside = (parent: string, child: string): boolean => {
+        const rel = relative(parent, child);
+        return (
+          !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\')
+        );
+      };
+      for (const path of options.hiddenReadPaths ?? []) {
+        if (spec.writable.some((w) => inside(w, path) || inside(path, w)))
+          throw new Error('Oracle isolation overlaps workspace.');
+        spec.hidden.push(path);
+        spec.readOnly = spec.readOnly.filter((r) => !inside(r, path) && !inside(path, r));
+      }
+      const command = options.sandbox ? sandboxArgv(options.sandbox, spec, argv) : argv;
       const child = spawn(command[0]!, command.slice(1), {
         cwd: dir,
         env: minimalEnv(home, options.passEnv),

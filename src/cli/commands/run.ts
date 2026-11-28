@@ -43,6 +43,8 @@ import {
   type Workspace,
 } from '../../engine/workspace.js';
 import { resumePoint } from '../../runner/resume.js';
+import { approveTests, protectedTests } from '../../engine/protected-tests.js';
+import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -51,6 +53,7 @@ type Config = {
   policy?: { allowedCommands?: string[][]; rules?: PolicyRule[]; passEnv?: string[] };
   tasksDir?: string;
   syntheticFixture?: boolean;
+  protectedTests?: string[];
 };
 export function rootAt(cwd: string): string {
   return realpathSync(git(['rev-parse', '--show-toplevel'], cwd));
@@ -115,20 +118,26 @@ export async function runCommand(options: {
     // Resuming continues the original task; the interrupted turn is rolled back and re-asked.
     const point = options.resume === undefined ? undefined : resumePoint(root, options.resume);
     let instruction = point ? point.task.instruction : options.instruction;
+    let oracle: Oracle | undefined;
     const taskId = point ? point.task.taskId : (options.taskId ?? null);
-    if (!point && options.taskId) {
-      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.taskId)) throw adapterError('TUIG_E_USAGE');
-      const taskDir = join(resolve(root, config.tasksDir ?? '.tuig/tasks'), options.taskId);
-      const task = JSON.parse(readFileSync(join(taskDir, 'task.json'), 'utf8')) as {
+    if (taskId) {
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(taskId)) throw adapterError('TUIG_E_USAGE');
+      const taskDir = join(resolve(root, config.tasksDir ?? '.tuig/tasks'), taskId);
+      const task = JSON.parse(readFileSync(join(taskDir, 'task.json'), 'utf8')) as Parameters<
+        typeof loadOracle
+      >[2] & {
         id: string;
         oracleReviewed: boolean;
       };
-      if (task.id !== options.taskId || task.oracleReviewed !== true)
+      if (task.id !== taskId || task.oracleReviewed !== true)
         throw adapterError('TUIG_E_ORACLE_REVIEW');
-      instruction = readFileSync(join(taskDir, 'instruction.md'), 'utf8');
+      oracle = loadOracle(root, taskDir, task);
+      if (oracle && !sandbox) throw adapterError('TUIG_E_SANDBOX');
+      if (!point) instruction = readFileSync(join(taskDir, 'instruction.md'), 'utf8');
     }
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
     const checkConfig = { checks: loadChecks(root) };
+    const testPatterns = protectedTests(config.protectedTests);
     if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (
       config.policy?.allowedCommands &&
@@ -197,6 +206,7 @@ export async function runCommand(options: {
     const passEnv = (config.policy?.passEnv ?? []).filter(
       (name) => name !== config.models.apiKeyEnv,
     );
+    let taskVerdict: TaskVerdict = { verdict: 'not_evaluated', source: 'hidden_oracle' };
     const result = await control({
       root: workspace.path,
       store,
@@ -232,6 +242,7 @@ export async function runCommand(options: {
         mode: config.mode,
         rules: config.policy?.rules ?? [],
         passEnv,
+        ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
         ...(sandbox ? { sandbox } : {}),
       },
       ...(approver ? { approver } : {}),
@@ -245,6 +256,29 @@ export async function runCommand(options: {
       allowedCommands:
         config.policy?.allowedCommands ?? checkConfig.checks.map((check) => check.argv),
       checks: checkConfig.checks,
+      protectedTests: testPatterns,
+      finalize: async (eligible) => {
+        if (!approveTests(workspace, testPatterns, store, approver))
+          return { passed: false, reason: 'Protected test changes denied' };
+        if (oracle && eligible) {
+          taskVerdict = await finalOracle(workspace.path, oracle, {
+            passEnv,
+            ...(sandbox ? { sandbox } : {}),
+          });
+          appendEvent(store, 'oracle_result', taskVerdict);
+          if (taskVerdict.verdict === 'infrastructure_error')
+            return {
+              passed: false,
+              infrastructure: true,
+              reason: taskVerdict.code ?? 'TUIG_E_PREREQUISITE',
+            };
+          return {
+            passed: taskVerdict.verdict === 'pass',
+            reason: taskVerdict.verdict === 'pass' ? '' : 'Hidden oracle failed',
+          };
+        }
+        return { passed: true };
+      },
       validate: async () => {
         const checks = [];
         for (const check of checkConfig.checks) {
@@ -253,7 +287,11 @@ export async function runCommand(options: {
           const result = await executeCheck(
             workspace.path,
             check,
-            { passEnv, ...(sandbox ? { sandbox } : {}) },
+            {
+              passEnv,
+              ...(sandbox ? { sandbox } : {}),
+              ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
+            },
             (output) => {
               writeArtifact(store, 'tool-logs/check-' + sequence + '.log', output);
             },
@@ -271,9 +309,13 @@ export async function runCommand(options: {
       id,
       ...location,
       taskId,
+      taskVerdict,
+      testTamperAttempts: readRun(store)
+        .events.filter((e) => e.type === 'test_tamper')
+        .reduce((n, e) => n + Number(e.data.count), 0),
       ...(point ? { resumedFrom: point.from } : {}),
     });
-    const data = { id, ...location, ...result };
+    const data = { id, ...location, ...result, taskVerdict };
     return result.state === 'SUCCEEDED'
       ? envelope('run', data, { status: 'ok' })
       : envelope('run', data, {
