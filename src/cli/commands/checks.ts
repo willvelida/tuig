@@ -12,6 +12,7 @@ import {
 } from '../../engine/repository-state.js';
 import { detectSandbox } from '../../sandbox/index.js';
 import { commandFailure, rootAt } from './run.js';
+import { binaryUnderTest, selfHostConfig, verifySelfHost } from '../../engine/self-host.js';
 
 function configured<T>(read: () => T): T {
   try {
@@ -22,7 +23,7 @@ function configured<T>(read: () => T): T {
   }
 }
 
-export async function checksCommand(cwd = process.cwd()): Promise<Envelope> {
+export async function checksCommand(cwd = process.cwd(), candidate?: string): Promise<Envelope> {
   try {
     const root = rootAt(cwd);
     if (!isTrusted(repositoryIdentity(root), trustFile())) throw codedError('TUIG_E_UNTRUSTED');
@@ -30,7 +31,17 @@ export async function checksCommand(cwd = process.cwd()): Promise<Envelope> {
       JSON.parse(readFileSync(join(root, '.tuig/config.json'), 'utf8')),
     );
     if (validateConfig(config).length) throw codedError('TUIG_E_CONFIG');
+    const pin = selfHostConfig((config as Record<string, unknown>).selfHost);
+    if (pin) verifySelfHost(root, pin, true);
+    const binary = candidate === undefined ? undefined : binaryUnderTest(candidate, root);
     const checks = configured(() => loadChecks(root));
+    for (const check of checks) {
+      if (check.argv.includes('{binary-under-test}')) {
+        const selected =
+          binary ?? join(root, process.platform === 'win32' ? 'bin/tuig.exe' : 'bin/tuig');
+        check.argv = check.argv.map((arg) => (arg === '{binary-under-test}' ? selected : arg));
+      }
+    }
     const settings = config as { mode: string; sandbox?: string; policy?: { passEnv?: string[] } };
     const sandbox = settings.sandbox === 'off' ? null : detectSandbox();
     if (['auto-edit', 'auto'].includes(settings.mode) && !sandbox)

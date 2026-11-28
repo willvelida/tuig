@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "files": {
+    ".tuig/config.json": {
+      "templateVersion": 1,
+      "sha256": "a8a05735d64aefca448622d58563fa875c1e5c6f273d63113a5f8c18c6a150df"
+    },
+    ".tuig/checks.json": {
+      "templateVersion": 1,
+      "sha256": "61e0807acb7fd0b06b17ec29f2da1ba0f215ca1838eb3d87f17906ec56f96826"
+    }
+  }
+}

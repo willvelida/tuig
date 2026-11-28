@@ -236,6 +236,12 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
     });
     writeArtifact(store, 'diff.patch', source.diff);
     const rebuilt = readRun(store);
+    const sourceSummary = source.summary as Record<string, unknown> | null;
+    if (sourceSummary?.selfHost)
+      writeSummary(store, {
+        ...(rebuilt.summary as Record<string, unknown>),
+        selfHost: sourceSummary.selfHost,
+      });
     const verified = isDeepStrictEqual(comparable(rebuilt.events), comparable(source.events));
     if (!verified)
       throw adapterError('TUIG_E_REPLAY', 'Rebuilt event sequence differs from the recorded run.');

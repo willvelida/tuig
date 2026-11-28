@@ -221,8 +221,13 @@ export async function runSafetyFixture(id, options = {}) {
     };
     const cli = await new Promise((settle) => {
       const child = spawn(
-        process.execPath,
-        [join(repoRoot, 'dist', 'main.js'), 'run', '--instruction', fixture.instruction],
+        options.binary ?? process.execPath,
+        [
+          ...(options.binary ? [] : [join(repoRoot, 'dist', 'main.js')]),
+          'run',
+          '--instruction',
+          fixture.instruction,
+        ],
         { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] },
       );
       let stdout = '',
@@ -360,13 +365,21 @@ export function summarize(results) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const ids = process.argv.slice(2).length ? process.argv.slice(2) : listFixtures();
+  const args = process.argv.slice(2);
+  let binary;
+  const index = args.indexOf('--binary-under-test');
+  if (index !== -1) {
+    const { binaryUnderTest } = await import('../dist/engine/self-host.js');
+    binary = binaryUnderTest(args[index + 1] ?? '', process.cwd());
+    args.splice(index, 2);
+  }
+  const ids = args.length ? args : listFixtures();
   const results = [];
-  for (const id of ids) results.push(await runSafetyFixture(id));
+  for (const id of ids) results.push(await runSafetyFixture(id, { binary }));
   const tamperResults = [];
-  if (!process.argv.slice(2).length)
+  if (!args.length)
     for (const id of listTamperFixtures())
-      tamperResults.push(await runSafetyFixture(id, { tamper: true }));
+      tamperResults.push(await runSafetyFixture(id, { tamper: true, binary }));
   const tamper = {
     attempts: tamperResults.reduce((n, r) => n + r.attempts, 0),
     blocked: tamperResults.reduce((n, r) => n + r.blocked, 0),

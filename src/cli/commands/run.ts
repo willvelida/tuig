@@ -46,6 +46,7 @@ import { resumePoint } from '../../runner/resume.js';
 import {
   approveTests,
   protectedTests,
+  isProtectedTest,
   protectionState,
   restoreProtectionState,
   ProtectionError,
@@ -58,6 +59,7 @@ import {
   type WorkspaceIdentity,
 } from '../../engine/workspace-integrity.js';
 import { loadSetup, executeSetup, type SetupResult } from '../../engine/setup.js';
+import { selfHostConfig, verifySelfHost, type SelfHost } from '../../engine/self-host.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -67,6 +69,8 @@ type Config = {
   tasksDir?: string;
   syntheticFixture?: boolean;
   protectedTests?: string[];
+  protectedPaths?: string[];
+  selfHost?: SelfHost;
   secretGate?: 'required' | 'off';
 };
 export function rootAt(cwd: string): string {
@@ -121,6 +125,8 @@ export async function runCommand(options: {
   try {
     const root = rootAt(options.cwd ?? process.cwd()),
       config = trusted(root);
+    const pin = selfHostConfig(config.selfHost);
+    if (pin) verifySelfHost(root, pin, true);
     if (!['linux', 'darwin'].includes(options.platform ?? process.platform))
       throw adapterError('TUIG_E_PREREQUISITE');
     // auto-edit and auto run commands without asking, so they require a working OS sandbox.
@@ -156,7 +162,8 @@ export async function runCommand(options: {
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
     const checkConfig = { checks: loadChecks(root) };
     const setupCommands = loadSetup(root);
-    const testPatterns = protectedTests(config.protectedTests);
+    const selfPatterns = protectedTests(config.protectedPaths);
+    const testPatterns = [...protectedTests(config.protectedTests), ...selfPatterns];
     if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (
       config.policy?.allowedCommands &&
@@ -213,6 +220,12 @@ export async function runCommand(options: {
       verifyWorkspace(workspace, savedIdentity!);
       restoreCheckpoint(workspace, point.checkpoint.ref);
     } else workspace = createWorkspace(root, id);
+    for (const check of checkConfig.checks)
+      check.argv = check.argv.map((arg) =>
+        arg === '{binary-under-test}'
+          ? join(workspace.path, process.platform === 'win32' ? 'bin/tuig.exe' : 'bin/tuig')
+          : arg,
+      );
     const branch = workspace.branch;
     const passEnv = (config.policy?.passEnv ?? []).filter(
       (name) => name !== config.models.apiKeyEnv,
@@ -245,7 +258,11 @@ export async function runCommand(options: {
       appendEvent(store, 'state_transition', { from: 'SETUP', to: state, reason: error.message });
       appendEvent(store, 'run_end', { state, reason: error.message });
       const data = { id, state, branch, base: workspace.base, worktree: workspace.path, setup };
-      writeSummary(store, { ...data, error });
+      writeSummary(store, {
+        ...data,
+        error,
+        ...(pin ? { selfHost: { ...pin, protectedPathsTouched: [] } } : {}),
+      });
       return envelope('run', data, { status: 'error', error, next_action: error.fix });
     }
     verifyWorkspace(workspace, identity);
@@ -287,6 +304,7 @@ export async function runCommand(options: {
         protectionBaseline,
         setup,
         workspaceIdentity: identity,
+        ...(pin ? { selfHost: pin, protectedPaths: selfPatterns } : {}),
         task: { taskId, instruction },
         ...(point
           ? {
@@ -417,6 +435,27 @@ export async function runCommand(options: {
     }
     const summary = readRun(store).summary as Record<string, unknown>;
     const location = { branch, base: workspace.base, worktree: workspace.path };
+    const selfHost = pin
+      ? {
+          ...pin,
+          protectedPathsTouched: [
+            ...new Set(
+              readRun(store)
+                .events.filter((event) => event.type === 'test_tamper')
+                .flatMap((event) => (Array.isArray(event.data.paths) ? event.data.paths : []))
+                .map((path: unknown) =>
+                  typeof path === 'string'
+                    ? path.replaceAll('\\', '/').replace(/^(?:\.\/)+/, '')
+                    : path,
+                )
+                .filter(
+                  (path): path is string =>
+                    typeof path === 'string' && isProtectedTest(path, selfPatterns),
+                ),
+            ),
+          ].sort(),
+        }
+      : undefined;
     writeSummary(store, {
       ...summary,
       id,
@@ -425,6 +464,7 @@ export async function runCommand(options: {
       taskVerdict,
       setup,
       secretGate: secretResult,
+      ...(selfHost ? { selfHost } : {}),
       ...(protectionError ? { protectionError } : {}),
       testTamperAttempts: readRun(store)
         .events.filter((e) => e.type === 'test_tamper')

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "requiredVersion": "0.1.0",
+  "mode": "ask",
+  "secretGate": "required",
+  "selfHost": {
+    "pinnedVersion": "OWNER_PIN_PENDING",
+    "pinnedSha256": "OWNER_SHA256_PENDING"
+  },
+  "protectedPaths": [
+    "src/engine/policy.ts", "src/engine/redact.ts", "src/engine/trust.ts", "src/engine/workspace.ts",
+    "src/sandbox/**", "src/runner/adapter/**", "src/runner/budgets.ts", "src/runner/stuck.ts",
+    "schemas/**", "fixtures/**", "eval/baselines/**", ".tuig/**", ".github/workflows/**",
+    "AGENTS.md", "docs/decisions/**"
+  ],
+  "policy": { "passEnv": ["TUIG_NPM_CACHE_SEED", "npm_config_cache"] },
+  "protectedTests": ["test/**", "tests/**", "tests-visible/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/conftest.py", "**/pytest.ini", "**/.pytest.ini", "**/pyproject.toml", "**/tox.ini", "**/setup.cfg"],
+  "budgets": {
+    "requests": 100,
+    "cost": 10,
+    "wallSeconds": 3600,
+    "formatErrors": 3,
+    "repairPerCheck": 3,
+    "repairTotal": 6
+  },
+  "models": {
+    "allowedEndpoints": []
+  }
+}

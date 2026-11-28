@@ -75,6 +75,16 @@ Native Anthropic mode: set models.adapter to anthropic and models.baseURL to the
 
 ## Trusted setup before run baselines
 
+Optional `selfHost: {pinnedVersion, pinnedSha256}` requires an external pinned
+executable under $XDG_DATA_HOME/tuig/pinned/<version>/tuig (default ~/.local/share;
+Windows diagnostics use tuig.exe). Doctor verifies its hash and clean embedded
+commit/tree identity against the locally available pinnedVersion tag. Run and
+checks also verify the invoking executable matches that hash; source invocations
+refuse. Unknown/dirty/missing pins fail with TUIG_E_SELFHOST_UNPINNED. See
+docs/self-hosting.md for the owner-only pinning procedure. Optional protectedPaths
+uses the same validated glob grammar and approval gates as protectedTests.
+Self-hosted summaries retain the pin and protected paths attempted or changed.
+
 `.tuig/checks.json` may include `setup`, an ordered array (empty by default) of
 `{ "name": "offline install", "argv": ["npm", "ci", "--offline"], "timeoutSec": 60 }`.
 Names must be unique and nonblank (at most 256 characters); argv has 1-100

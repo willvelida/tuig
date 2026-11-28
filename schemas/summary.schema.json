@@ -8,6 +8,15 @@
     "claims"
   ],
   "properties": {
+    "selfHost": {
+      "type": "object",
+      "required": ["pinnedVersion", "pinnedSha256", "protectedPathsTouched"],
+      "properties": {
+        "pinnedVersion": { "type": "string" },
+        "pinnedSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "protectedPathsTouched": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
     "setup": {
       "type": "object",
       "required": ["status", "commands"],

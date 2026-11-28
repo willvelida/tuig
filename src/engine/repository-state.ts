@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { CLI_NAME } from '../cli/name.js';
 import { runGit } from './git.js';
 import { MODES } from './policy.js';
+import { selfHostConfig } from './self-host.js';
 
 export function git(args: string[], cwd: string): string {
   const result = runGit(args, cwd, { timeoutMs: 5000, maxBuffer: 1024 * 1024 });
@@ -53,6 +54,11 @@ export function isTrusted(
 export function validateConfig(value: unknown): string[] {
   if (!object(value)) return ['Configuration must be an object.'];
   const errors: string[] = [];
+  try {
+    selfHostConfig(value.selfHost);
+  } catch {
+    errors.push('selfHost must contain pinnedVersion and pinnedSha256 strings.');
+  }
   if (
     value.secretGate !== undefined &&
     value.secretGate !== 'required' &&

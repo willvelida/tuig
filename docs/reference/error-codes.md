@@ -4,6 +4,8 @@ Generated from src/cli/errors.ts. Run npm run docs:errors to regenerate.
 
 | Code | Message | Fix |
 |---|---|---|
+| TUIG_E_SELFHOST_UNPINNED | Self-hosting requires a verified pinned executable from a clean tagged commit. | Follow docs/self-hosting.md: install the pin outside the repository, set selfHost.pinnedVersion/pinnedSha256, ensure the tag exists locally, and launch runs with that executable. |
+| TUIG_E_BINARY_UNDER_TEST | The binary under test is missing, invalid or cannot be executed. | Build the changed code with npm run build:binary, then pass its executable path to tuig checks --binary-under-test <path>. |
 | TUIG_E_DIRTY | Run base has uncommitted changes. | Review and commit or otherwise preserve your changes before starting a run. |
 | TUIG_E_RESUME | Run cannot be resumed. | Resume only cancelled or interrupted runs that have a checkpoint and were not resumed already; inspect with tuig runs show <id>. |
 | TUIG_E_SANDBOX | A working OS sandbox is required for this mode but none is available. | Install bubblewrap (Linux) or use sandbox-exec (macOS), confirm with tuig doctor, or use mode ask. |

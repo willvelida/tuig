@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "setup": [
+    {
+      "name": "copy offline cache",
+      "argv": ["node", "-e", "require('node:fs').cpSync(process.env.TUIG_NPM_CACHE_SEED,'.tuig/temp/offline-npm-cache',{recursive:true})"],
+      "timeoutSec": 60
+    },
+    {
+      "name": "offline dependencies",
+      "argv": ["npm", "ci", "--offline", "--ignore-scripts"],
+      "timeoutSec": 60
+    }
+  ],
+  "checks": [
+    { "name": "lint", "argv": ["npm", "run", "lint"], "timeoutSec": 60 },
+    { "name": "typecheck", "argv": ["npm", "run", "typecheck"], "timeoutSec": 60 },
+    { "name": "build test modules", "argv": ["npm", "run", "build"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 1 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "0"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 2 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "1"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 3 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "2"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 4 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "3"], "timeoutSec": 60 },
+    { "name": "build binary under test", "argv": ["npm", "run", "build:binary"], "timeoutSec": 60 },
+    { "name": "safety fixtures", "argv": ["node", "scripts/safety-fixtures.mjs", "--binary-under-test", "{binary-under-test}"], "timeoutSec": 60 }
+  ]
+}
