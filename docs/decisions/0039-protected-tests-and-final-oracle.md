@@ -206,3 +206,31 @@ ignores environment configuration, but already ignores PYTHONPATH and uses its
 own startup semantics; trusted checks must not explicitly reset the interpreter's
 cache prefix or load arbitrary bytecode as data. No environment mechanism can
 constrain a trusted command that deliberately overrides it.
+
+## Owner-approved trusted setup phase (review round 1)
+
+A freshly added worktree has no ignored dependency tree. Therefore capturing its
+baseline immediately after worktree creation does not exempt dependencies installed
+later by checks or agent commands. The earlier dependency-installed wording means
+only files present at baseline capture; it did not establish an installation phase.
+
+Version-1 checks.json now supports an optional trusted setup list, empty in init.
+Before any model request and before baseline capture, new runs execute its pinned
+argv arrays sequentially through the trusted subprocess runner. Each command has a
+positive timeout up to 60 seconds (default 60); at most sixteen commands are allowed.
+Minimal environment, configured passEnv, output bounds and redaction apply. A
+working detected OS sandbox is used for setup with network disabled, even when
+agent sandbox is explicitly off. Setup grants no agent tool or command allowlist
+entry. Cache preparation for offline npm is documented in the configuration topic.
+
+Pin Git identity before setup and verify it afterwards. Files created during
+successful setup become baseline inputs. Protected ignored sources changed by
+checks or agents after setup remain gated; neither dependency names nor ignore
+rules confer a later exemption. Setup failures and cancellation record typed
+terminal outcomes and remediation before any model request. setup_start and
+setup_result events precede run_start; setup results also appear in the summary.
+Offline replay copies the host-owned setup evidence without execution. Resume
+skips setup and restores the original baseline, refusing missing legacy state.
+Run-level approval-interruption tests pin both baseline attribution and Git
+verification before checkpoint restoration. No protected workspace implementation
+or existing main test is changed, and no dependency is added.

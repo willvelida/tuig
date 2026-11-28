@@ -12,6 +12,20 @@ try {
   const probes = [
     {
       file: 'engine/secret-gate.js',
+      search: "unsafePaths.has(file) ? 'path/[REDACTED]' : clean(file)",
+      replace: 'clean(file)',
+      test: '^path review: content finding never echoes a secret-named path fake$',
+      name: 'leak detector-only secret in content finding filename',
+    },
+    {
+      file: 'engine/secret-gate.js',
+      search: "'--diff-filter=ACMTD',",
+      replace: "'--diff-filter=ACMT',",
+      test: '^path review: deletion-only base path',
+      name: 'drop deleted base path scanning',
+    },
+    {
+      file: 'engine/secret-gate.js',
       search: 'for (const commit of commits)',
       replace: 'for (const commit of [])',
       test: '^history gate fake scanner: reverted-secret$',

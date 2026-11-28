@@ -101,6 +101,11 @@ string src=a[Array.IndexOf(a,"--source")+1], report=a[Array.IndexOf(a,"--report-
 if(mode=="missing-report") return 0;
 if(mode=="bad-report") { File.WriteAllText(report,"{"); return 0; }
 if(mode=="oversized") { File.WriteAllText(report,new string(' ',1048577)); return 0; }
+if(mode=="paths-and-content") {
+var rowsAll=new System.Collections.Generic.List<string>();
+foreach(string f in Directory.GetFiles(src,"*.txt")) if(File.ReadAllText(f).Contains("glpat-")) rowsAll.Add("{\\\"RuleID\\\":\\\"gitlab-pat\\\",\\\"File\\\":\\\""+Path.GetFileName(f)+"\\\",\\\"StartLine\\\":1}");
+File.WriteAllText(report,"["+String.Join(",",rowsAll.ToArray())+"]");return rowsAll.Count==0?0:42;
+}
 string found=null;
 foreach(string f in Directory.GetFiles(src,"*.txt")) if(File.ReadAllText(f).Contains("AKIA")) { found=Path.GetFileName(f); break; }
 string rows=found==null?"[]":"[{\\"RuleID\\":\\"aws-access-token\\",\\"File\\":\\""+found+"\\",\\"StartLine\\":1,\\"Secret\\":\\"REDACTED\\"}]";
@@ -128,6 +133,10 @@ const source=a[a.indexOf('--source')+1], report=a[a.indexOf('--report-path')+1];
 if(mode==='missing-report')process.exit(0);
 if(mode==='bad-report'){fs.writeFileSync(report,'{');process.exit(0)}
 if(mode==='oversized'){fs.writeFileSync(report,' '.repeat(1048577));process.exit(0)}
+if(mode==='paths-and-content') {
+const rows=fs.readdirSync(source).filter(f=>fs.readFileSync(path.join(source,f),'utf8').includes('glpat-')).map(File=>({RuleID:'gitlab-pat',File,StartLine:1}));
+fs.writeFileSync(report,JSON.stringify(rows));process.exit(rows.length?42:0);
+}
 const file=fs.readdirSync(source).find(f=>fs.readFileSync(path.join(source,f),'utf8').includes('AKIA'));
 const rows=file?[{RuleID:'aws-access-token',File:file,StartLine:1,Secret:'REDACTED'}]:[];
 fs.writeFileSync(report,JSON.stringify(mode==='inconsistent'?[]:rows));
@@ -643,3 +652,63 @@ for (const change of ['deleted', 'nonexistent', 'main', 'branch'])
     const record = readFileSync(join(f.repo, '.tuig/runs', result.data.id, 'events.jsonl'), 'utf8');
     assert.match(record, /workspace_integrity/);
   });
+
+const gitlabToken = 'glpat-' + '9H3g7L2q8W6e4R1t5Y0u';
+for (const real of [false, true])
+  test(
+    'path review: content finding never echoes a secret-named path ' + (real ? 'real' : 'fake'),
+    async (t) => {
+      const f = fixture(t);
+      if (real) {
+        if (spawnSync('gitleaks', ['version'], { encoding: 'utf8' }).status !== 0) {
+          assert.notEqual(process.env.TUIG_REQUIRE_GITLEAKS, '1');
+          t.skip('gitleaks unavailable');
+          return;
+        }
+      } else fake(t, f.dir, 'paths-and-content');
+      const { redactor } = await import('../dist/engine/redact.js');
+      assert.equal(
+        redactor({ env: {} })(gitlabToken),
+        gitlabToken,
+        'exercise a detector-only token',
+      );
+      const path = 'credential-' + gitlabToken + '.txt';
+      writeFileSync(join(f.repo, path), 'gitlab_token = "' + gitlabToken + '"\n');
+      const result = await secretGate(f.workspace);
+      assert.equal(result.status, 'fail', JSON.stringify(result));
+      assert.ok(
+        result.findings.some((f) => f.file === 'path/[REDACTED]'),
+        'content finding must use opaque label',
+      );
+      assert.ok(
+        result.findings.some((f) => /^path\/[a-f0-9-]+$/.test(f.file)),
+        'path input was scanned',
+      );
+      assert.equal(JSON.stringify(result).includes(path), false);
+      assert.equal(JSON.stringify(result).includes(gitlabToken), false);
+    },
+  );
+test('path review: deletion-only base path is scanned fail closed', async (t) => {
+  const f = fixture(t);
+  fake(t, f.dir, 'paths-and-content');
+  const path = 'base-' + gitlabToken + '.txt';
+  writeFileSync(join(f.repo, path), 'clean\n');
+  f.git(['add', path]);
+  f.git([
+    '-c',
+    'user.name=T',
+    '-c',
+    'user.email=t@e.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-qm',
+    'base filename',
+  ]);
+  f.workspace.base = f.git(['rev-parse', 'HEAD']);
+  rmSync(join(f.repo, path));
+  const result = await secretGate(f.workspace);
+  assert.equal(result.status, 'fail', JSON.stringify(result));
+  assert.ok(result.findings.every((f) => /^path\//.test(f.file)));
+  assert.equal(JSON.stringify(result).includes(gitlabToken), false);
+});

@@ -6,6 +6,30 @@ import { spawnSync } from 'node:child_process';
 
 const probes = [
   {
+    name: 'resume original ignored-file attribution',
+    file: 'dist/cli/commands/run.js',
+    from: 'const protectionBaseline = savedProtection ?? protectionState(workspace, testPatterns);',
+    to: 'const protectionBaseline = protectionState(workspace, testPatterns);',
+    test: '^resume review: original baseline still denies',
+    testFile: 'test/setup-review.test.mjs',
+  },
+  {
+    name: 'resume Git identity before restoration',
+    file: 'dist/cli/commands/run.js',
+    from: 'verifyWorkspace(workspace, savedIdentity);',
+    to: '// Mutation: resume verification removed.',
+    test: '^resume review: pinned Git directory',
+    testFile: 'test/setup-review.test.mjs',
+  },
+  {
+    name: 'missing resume baseline refusal',
+    file: 'dist/engine/protected-tests.js',
+    from: 'export function restoreProtectionState(value) {',
+    to: "export function restoreProtectionState(value) { return { exclude: 'missing', excludeHash: 'missing', ignored: {} };",
+    test: '^resume review: (missing|pre-hardening) baseline',
+    testFile: 'test/setup-review.test.mjs',
+  },
+  {
     name: 'final diff gate',
     file: 'dist/engine/protected-tests.js',
     from: 'paths = changedTests(workspace, patterns, baseline);',

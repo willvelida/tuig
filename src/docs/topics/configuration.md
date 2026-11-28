@@ -72,3 +72,64 @@ protectedTests supports forward-slash literal paths, * within a path component a
 Reviewed pytest tasks may provide oracle.hidden, oracle.sha256.hidden and timeouts.hiddenSec. The host pins and verifies hidden bytes before running, refuses oracle bytes exposed in the repository or Git objects, and requires a sandbox. Hidden tests run only after the agent loop ends in a separate final snapshot. They never become visible tool feedback. summary.json records taskVerdict separately from visible acceptance and model claims: pass, fail, infrastructure_error or not_evaluated. Ad hoc runs without a hidden oracle are explicitly not_evaluated. Missing Python/pytest, timeout and invalid oracle execution never pass.
 
 Native Anthropic mode: set models.adapter to anthropic and models.baseURL to the full Messages URL, such as https://api.anthropic.com/v1/messages. models.apiKeyEnv names the Anthropic API credential variable. Native prices also accept cacheWrite5m and cacheWrite1h. maxOutputTokens defaults to 8192 and effort to medium. Signed assistant thinking blocks are preserved unchanged; native history stays append-only while compatible adapters keep batched masking. Thinking is billed in output; unavailable reasoning subtotals are marked unknown.
+
+## Trusted setup before run baselines
+
+`.tuig/checks.json` may include `setup`, an ordered array (empty by default) of
+`{ "name": "offline install", "argv": ["npm", "ci", "--offline"], "timeoutSec": 60 }`.
+Names must be unique and nonblank (at most 256 characters); argv has 1-100
+nonempty, NUL-free arguments of at most 8192 characters each. There are at most
+16 commands; timeoutSec defaults to 60 and must be greater than zero and at most
+60. Unknown setup-command fields are rejected. Review setup along with checks
+before trusting a repository. Setup is a host action, not an agent tool, and its
+commands are not added to the agent's allowedCommands.
+
+For each new `run`, the harness creates its worktree, pins the trusted command
+list, then runs setup in order before recording the protected-file baseline or
+making a model request. Commands receive argv exactly as configured, the minimal
+environment plus policy.passEnv, bounded output logs with redaction, and a fresh
+temporary HOME. A detected OS sandbox is used even when agent sandbox is off;
+its network remains off. With no sandbox available, setup follows the existing
+trusted subprocess fallback; it does not gain a network capability or exception.
+A failure, timeout, unavailable executable or cancellation stops setup and the run
+before the agent acts, with ERROR or CANCELLED, TUIG_E_PREREQUISITE and next_action.
+Later commands do not run. setup_start/setup_result events and the summary's setup
+field record names, redacted argv, process status, exitCode, durationMs and log
+references. Offline replay consumes these records without executing setup.
+
+Setup runs once per new run; resume never reruns it and must restore the original
+saved baseline. Dependencies installed by setup are baseline inputs. Any ignored
+protected source created, modified or deleted by later checks or agent commands
+still requires approval. A plain `npm ci` executed after baseline capture is not
+exempt. `tuig checks` runs checks only and does not execute setup.
+
+For an offline npm install, fully populate a cache beforehand, including every
+locked package tarball, using the same npm/lockfile versions. To avoid writes to a
+read-only external seed cache, set `TUIG_NPM_CACHE_SEED` to its absolute path and
+`npm_config_cache` to `.tuig/offline-npm-cache` in the parent environment. Add both
+names to policy.passEnv and use this setup (the first command copies the existing
+seed into the writable worktree; fresh HOME is not shared between commands):
+
+```json
+{
+  "schema_version": 1,
+  "setup": [
+    {
+      "name": "copy offline cache",
+      "argv": ["node", "-e", "require('node:fs').cpSync(process.env.TUIG_NPM_CACHE_SEED,'.tuig/offline-npm-cache',{recursive:true})"],
+      "timeoutSec": 60
+    },
+    {
+      "name": "offline dependencies",
+      "argv": ["npm", "ci", "--offline", "--ignore-scripts"],
+      "timeoutSec": 60
+    }
+  ],
+  "checks": [{ "name": "tests", "argv": ["npm", "test"] }]
+}
+```
+
+Keep credentials in environment variables, never argv or configuration values.
+The external seed must be readable and outside hidden-oracle locations. Cache
+misses fail offline; the harness does not enable network to repair them. Review
+any needed install/build lifecycle scripts separately and keep them offline.

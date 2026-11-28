@@ -8,6 +8,28 @@
     "claims"
   ],
   "properties": {
+    "setup": {
+      "type": "object",
+      "required": ["status", "commands"],
+      "properties": {
+        "status": { "enum": ["pass", "fail", "cancelled"] },
+        "commands": {
+          "type": "array", "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": ["name", "argv", "status", "exitCode", "durationMs", "log"],
+            "properties": {
+              "name": { "type": "string" },
+              "argv": { "type": "array", "items": { "type": "string" } },
+              "status": { "enum": ["ok", "nonzero_exit", "timeout", "cancelled"] },
+              "exitCode": { "type": ["integer", "null"] },
+              "durationMs": { "type": "number", "minimum": 0 },
+              "log": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "secretGate": {
       "type": "object",
       "required": ["status", "enabled", "findings"],

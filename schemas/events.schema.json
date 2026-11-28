@@ -31,6 +31,8 @@
     "type": {
       "enum": [
         "run_start",
+        "setup_start",
+        "setup_result",
         "model_request",
         "model_response",
         "tool_intent",

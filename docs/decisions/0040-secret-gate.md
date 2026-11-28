@@ -167,3 +167,19 @@ of report order. Safe original paths retain the previous reporting behavior.
 Neither raw scanner match values nor contaminated original filenames leave the
 gate. Paths are scanned individually so scanner line numbers never need to be
 interpreted as filesystem authority.
+
+## Review round 1: deleted base paths and detector-only filename secrets
+
+Deletion endpoints include paths already reachable at the run base, even when
+no new commit or resulting blob contains that filename. Deleting such a path
+still scans its name and fails closed if the detector reports a secret. This
+conservative policy prevents a deletion-only path from escaping path scanning;
+it does not claim the underlying base file's contents were introduced by the run.
+A deletion-only regression and mutation of the final diff filter pin this choice.
+
+Content-finding labels are also tested with a synthetic GitLab-format token that
+gitleaks detects but the existing redactor does not mask. Both the secret-named
+path input and that file's secret content produce findings; the raw filename
+must never appear in any finding. Replacing the unsafe-path marker with clean(file)
+is a required mutation failure. This verifies the two-pass mapping rather than
+relying on the redactor's known AWS/GitHub/OpenAI patterns to hide the bug.

@@ -3,32 +3,143 @@
   "$id": "https://tuig.dev/schemas/checks.schema.json",
   "title": "tuig visible checks, version 1",
   "type": "object",
-  "required": ["schema_version", "checks"],
+  "required": [
+    "schema_version",
+    "checks"
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": {
+      "const": 1
+    },
     "checks": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "argv"],
+        "required": [
+          "name",
+          "argv"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
-          "argv": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000]+$" } },
-          "kind": { "enum": ["gate", "repair"], "default": "gate" },
-          "parser": { "enum": ["exit-code", "junit", "eslint-json", "ruff-json", "tsc-text"], "default": "exit-code" },
-          "timeoutSec": { "type": "number", "exclusiveMinimum": 0, "maximum": 60, "default": 10 },
-          "paths": { "type": "array", "items": { "$ref": "#/definitions/relativePath" } },
-          "reportPath": { "$ref": "#/definitions/relativePath" }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000]+$"
+            }
+          },
+          "kind": {
+            "enum": [
+              "gate",
+              "repair"
+            ],
+            "default": "gate"
+          },
+          "parser": {
+            "enum": [
+              "exit-code",
+              "junit",
+              "eslint-json",
+              "ruff-json",
+              "tsc-text"
+            ],
+            "default": "exit-code"
+          },
+          "timeoutSec": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 60,
+            "default": 10
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/relativePath"
+            }
+          },
+          "reportPath": {
+            "$ref": "#/definitions/relativePath"
+          }
         },
-        "allOf": [{
-          "if": { "required": ["parser"], "properties": { "parser": { "const": "junit" } } },
-          "then": { "required": ["reportPath"] },
-          "else": { "not": { "required": ["reportPath"] } }
-        }]
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "parser"
+              ],
+              "properties": {
+                "parser": {
+                  "const": "junit"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "reportPath"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "reportPath"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "setup": {
+      "type": "array",
+      "maxItems": 16,
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "argv"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "\\S"
+          },
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192,
+              "pattern": "^[^\\u0000]+$"
+            }
+          },
+          "timeoutSec": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 60,
+            "default": 60
+          }
+        }
       }
     }
   },
   "definitions": {
-    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^\\u0000]+$" }
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^\\u0000]+$"
+    }
   }
 }

@@ -57,6 +57,7 @@ import {
   verifyWorkspace,
   type WorkspaceIdentity,
 } from '../../engine/workspace-integrity.js';
+import { loadSetup, executeSetup, type SetupResult } from '../../engine/setup.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -154,6 +155,7 @@ export async function runCommand(options: {
     }
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
     const checkConfig = { checks: loadChecks(root) };
+    const setupCommands = loadSetup(root);
     const testPatterns = protectedTests(config.protectedTests);
     if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (
@@ -211,12 +213,43 @@ export async function runCommand(options: {
       verifyWorkspace(workspace, savedIdentity!);
       restoreCheckpoint(workspace, point.checkpoint.ref);
     } else workspace = createWorkspace(root, id);
-    const protectionBaseline = savedProtection ?? protectionState(workspace, testPatterns);
-    const identity = savedIdentity ?? workspaceIdentity(workspace);
     const branch = workspace.branch;
+    const passEnv = (config.policy?.passEnv ?? []).filter(
+      (name) => name !== config.models.apiKeyEnv,
+    );
     const store = createRecord(root, id, {
-      sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
+      sensitiveEnv: [...passEnv, ...(config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [])],
     });
+    const identity = savedIdentity ?? workspaceIdentity(workspace);
+    const setupSandbox =
+      setupCommands.length && !point
+        ? (sandbox ?? detectSandbox(options.platform ?? process.platform))
+        : sandbox;
+    const setup: SetupResult = point
+      ? ((previousStart?.setup as SetupResult | undefined) ?? { status: 'pass', commands: [] })
+      : await executeSetup(workspace.path, setupCommands, store, {
+          passEnv,
+          ...(setupSandbox ? { sandbox: setupSandbox } : {}),
+          ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+    if (setup.status !== 'pass') {
+      const state = setup.status === 'cancelled' ? 'CANCELLED' : 'ERROR';
+      const error = {
+        code: 'TUIG_E_PREREQUISITE' as const,
+        message:
+          'Trusted setup ' +
+          (setup.status === 'cancelled' ? 'was cancelled.' : 'failed or timed out.'),
+        fix: 'Inspect the setup tool log, prepare offline dependencies/cache and review trusted setup commands, then start a new run.',
+      };
+      appendEvent(store, 'state_transition', { from: 'SETUP', to: state, reason: error.message });
+      appendEvent(store, 'run_end', { state, reason: error.message });
+      const data = { id, state, branch, base: workspace.base, worktree: workspace.path, setup };
+      writeSummary(store, { ...data, error });
+      return envelope('run', data, { status: 'error', error, next_action: error.fix });
+    }
+    verifyWorkspace(workspace, identity);
+    const protectionBaseline = savedProtection ?? protectionState(workspace, testPatterns);
     if (point) {
       // Link both ways before running, so a crash of the resumed run is itself resumable.
       const previous = existingRecord(root, point.from);
@@ -235,10 +268,6 @@ export async function runCommand(options: {
     const agents = existsSync(join(root, 'AGENTS.md'))
       ? readFileSync(join(root, 'AGENTS.md'), 'utf8')
       : '';
-    // Tools see only explicitly configured parent variables, never the model credential.
-    const passEnv = (config.policy?.passEnv ?? []).filter(
-      (name) => name !== config.models.apiKeyEnv,
-    );
     let taskVerdict: TaskVerdict = { verdict: 'not_evaluated', source: 'hidden_oracle' };
     let protectionError: ReturnType<typeof cliError> | undefined;
     let secretResult: SecretGateResult = {
@@ -256,6 +285,7 @@ export async function runCommand(options: {
         sandbox: sandbox?.kind ?? 'none',
         secretGate: config.secretGate ?? 'legacy-off',
         protectionBaseline,
+        setup,
         workspaceIdentity: identity,
         task: { taskId, instruction },
         ...(point
@@ -393,6 +423,7 @@ export async function runCommand(options: {
       ...location,
       taskId,
       taskVerdict,
+      setup,
       secretGate: secretResult,
       ...(protectionError ? { protectionError } : {}),
       testTamperAttempts: readRun(store)
@@ -405,6 +436,7 @@ export async function runCommand(options: {
       ...location,
       ...result,
       taskVerdict,
+      setup,
       secretGate: secretResult,
       ...(protectionError ? { protectionError } : {}),
     };
@@ -430,8 +462,12 @@ export function cleanupRun(id: string, cwd = process.cwd()): Envelope {
   try {
     const root = rootAt(cwd);
     trusted(root);
-    const start = readRun(existingRecord(root, id)).events.find((e) => e.type === 'run_start');
-    const recorded = start?.data.workspace as { id?: unknown; base?: unknown } | undefined;
+    const run = readRun(existingRecord(root, id));
+    const start = run.events.find((e) => e.type === 'run_start');
+    const summary = run.summary as { setup?: SetupResult; base?: string } | null;
+    const recorded = (start?.data.workspace ??
+      (summary?.setup ? { id, base: summary.base } : undefined)) as
+      { id?: unknown; base?: unknown } | undefined;
     if (typeof recorded?.base !== 'string') throw adapterError('TUIG_E_WORKSPACE');
     const workspaceId = typeof recorded.id === 'string' ? recorded.id : id;
     const result = cleanupWorkspace(openWorkspace(root, workspaceId, recorded.base));

@@ -8,6 +8,7 @@ import {
   readArtifact,
   readRun,
   writeArtifact,
+  writeSummary,
   type RunEvent,
 } from '../../engine/record.js';
 import { replayAdapter } from '../../runner/adapter/replay.js';
@@ -53,7 +54,44 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
     )
       cancellation.abort();
     const start = source.events.find((event) => event.type === 'run_start');
-    if (!start) throw adapterError('TUIG_E_REPLAY');
+    const prefix = source.events.slice(0, start?.seq ?? source.events.length);
+    if (!start) {
+      const summary = source.summary as { state?: string; setup?: { status?: string } } | null;
+      if (
+        !summary?.setup ||
+        !['fail', 'cancelled'].includes(summary.setup.status ?? '') ||
+        !['ERROR', 'CANCELLED'].includes(summary.state ?? '') ||
+        prefix.some(
+          (e) => !['setup_start', 'setup_result', 'state_transition', 'run_end'].includes(e.type),
+        )
+      )
+        throw adapterError('TUIG_E_REPLAY');
+      for (const event of prefix) appendEvent(store, event.type, event.data);
+      for (const event of prefix.filter((e) => e.type === 'setup_result')) {
+        const log = String(event.data.log);
+        writeArtifact(store, log, readArtifact(sourceStore, log));
+      }
+      writeSummary(store, { ...summary, id: replayId });
+      return envelope(
+        'runs replay',
+        {
+          id,
+          replayId,
+          state: summary.state,
+          verified: isDeepStrictEqual(comparable(readRun(store).events), comparable(source.events)),
+        },
+        { status: 'ok' },
+      );
+    }
+    if (prefix.some((e) => !['setup_start', 'setup_result'].includes(e.type)))
+      throw adapterError('TUIG_E_REPLAY');
+    for (const event of prefix) {
+      appendEvent(store, event.type, event.data);
+      if (event.type === 'setup_result') {
+        const log = String(event.data.log);
+        writeArtifact(store, log, readArtifact(sourceStore, log));
+      }
+    }
     const requests = source.events.filter((event) => event.type === 'model_request');
     let requestIndex = 0;
     const adapter = {

@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 import { redactor, redactValue } from './redact.js';
 export const EVENT_TYPES = [
   'run_start',
+  'setup_start',
+  'setup_result',
   'model_request',
   'model_response',
   'tool_intent',
