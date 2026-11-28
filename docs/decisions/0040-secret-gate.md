@@ -1,4 +1,4 @@
-# External gitleaks gate for the resulting run diff
+# External gitleaks gate for the resulting run diff and delivered branch history
 
 - Status: Accepted
 - Date: 2026-11-28
@@ -30,13 +30,20 @@ checked at final validation, including for empty diffs, rather than refusing the
 run up front. Ineligible runs record not_evaluated. Offline replay consumes the
 secret_gate event and never executes a scanner. Historical records remain valid.
 
-Use the existing snapshotTree and a hook-disabled NUL-delimited Git diff against
-the run base. Copy resulting blobs for added, modified, copied and type-changed
-files into an isolated random temporary directory. This is the changed file set
-represented by diff.patch: it includes agent commits and non-ignored untracked
-files, excludes deleted files, ignored files and unchanged history. This differs
+Use the same private-index snapshot procedure as snapshotTree, applying the
+gate's remaining preparation deadline to each hook-disabled Git invocation.
+A NUL-delimited raw Git diff against the run base identifies resulting blobs for
+added, modified and type-changed files. Copy their contents into an isolated
+random temporary directory. This includes non-ignored untracked files in
+diff.patch. In addition, enumerate every commit in base..HEAD and scan its full
+message and added/modified/type-changed blobs. Compare merges against every parent
+with diff-tree -m, and de-duplicate blobs by object id across final and historical
+diffs. A committed secret remains blocked after deletion or reversion because the
+delivered branch retains it. Message findings use commit/<id>/message as the file
+label; repeated blobs use the first encountered original path. History already
+reachable from base and ignored uncommitted files are excluded. This differs
 intentionally from ADR 0039's broader oracle/protected-test view: this gate protects
-the delivered result diff, not ignored execution inputs. Scan complete changed
+the delivered result diff and branch history, not ignored execution inputs. Scan complete changed
 files, conservatively also catching pre-existing credentials in those files. Mode
 changes can cause their resulting file to be scanned as well. Git blob reads use
 the existing UTF-8 Git runner; binary blobs are scanned as decoded text, preserving
@@ -52,13 +59,34 @@ The built-in detector rules and their intrinsic content allowlists still apply;
 gitleaks is a detector, not proof of absence of secrets.
 
 Invoke an argv array through runProcess, with minimal environment, no passEnv,
-a ten-second timeout, process-group termination and bounded output. It follows
+a fixed ten-second scanner timeout, process-group termination and bounded output. It follows
 the trusted run's configured OS sandbox (network off when sandboxed). Explicit
 sandbox off in ask/plan retains its existing meaning; autonomous runs require
 isolation. The scanner runs in the private snapshot, never the agent workspace.
 Only its process receives an additional writable report-directory mount. Reports
 use a UUID filename in a separate private random directory. Neither snapshot nor
 report path is passed to agent tools. Both are removed in finally.
+
+Preparation has its own ten-second overall monotonic deadline, including private
+index creation, path enumeration, commit enumeration, message/blob reads and
+snapshot writes. Each synchronous Git read is bounded by the remaining deadline.
+Before reading blobs, refuse more than 256 changed path entries in any one diff;
+also cap the combined distinct blobs and commit messages at 256, commits at 128,
+and content at 64 MiB. Per-object reads remain bounded, and duplicate blob ids
+never cause repeated content subprocesses. This deliberately chooses small count
+caps plus a deadline instead of a new batched-process interface. Count/byte
+overflow records reason preparation_limit; deadline exhaustion records
+preparation_timeout. Both return ERROR/TUIG_E_PREREQUISITE with specific messages
+and next_action instructions to split the run. The fixed scanner timeout can also
+make a legitimate large diff end in ERROR: both limits fail closed, never pass.
+
+Finalization receives the controller's merged abort signal (including SIGINT).
+Forward it to the scanner's runProcess and record secretGate status cancelled
+when interrupted. The controller rechecks cancellation after finalization and
+returns typed CANCELLED before considering success. Offline replay reconstructs
+that cancellation boundary without invoking the tool. Preparation checks abort
+between bounded synchronous Git operations; signal delivery cannot interrupt
+JavaScript while it is executing a synchronous Git read.
 
 Flags used and verified with `/usr/bin/gitleaks detect --help` in WSL:
 `detect --no-git --source <snapshot> --redact --report-format json
@@ -70,6 +98,11 @@ oversized report, non-regular report, symlink, inconsistent status/report or
 unknown snapshot filename fails closed. Report reads use O_NOFOLLOW where
 available, cap input at 1 MiB and accept at most 1000 findings; the snapshot has a
 64 MiB aggregate bound and the changed-path list a 1 MiB bound.
+
+Multiline and UTF-16 secrets remain detector limits; decoding Git output as UTF-8
+does not promise detection of every encoding or credential representation.
+Ignored hidden execution files outside delivered Git history remain a separate
+follow-up, as do the earlier-agent-record redaction limits below.
 
 Never persist scanner stdout/stderr or raw report fields such as Match/Secret.
 Use --redact and copy only validated rule id, mapped original filename, positive

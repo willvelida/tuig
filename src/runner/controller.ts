@@ -23,6 +23,7 @@ export type ControllerOptions = {
   /** Final host-only gates, after the agent loop has ended. Never returns feedback to the model. */
   finalize?: (
     eligible: boolean,
+    signal: AbortSignal,
   ) => Promise<{ passed: boolean; infrastructure?: boolean; reason?: string }>;
   limits?: Partial<Budgets>;
   allowedCommands?: string[][];
@@ -334,8 +335,9 @@ export async function control(
       move('repair');
     }
     const eligible = (state as State) === 'VALIDATING';
-    const final = await options.finalize?.(eligible);
-    if (eligible) {
+    const final = await options.finalize?.(eligible, signal);
+    if (eligible && signal.aborted) move('cancel', 'Cancellation requested');
+    else if (eligible) {
       if (final && !final.passed)
         move(final.infrastructure ? 'error' : 'fail', final.reason ?? 'Final validation failed');
       else move('succeed');

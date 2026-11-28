@@ -94,6 +94,7 @@ function fake(t, dir, mode = 'scan') {
 class Fake { static int Main(string[] a) {
 if(a.Length==1 && a[0]=="version") { Console.WriteLine("version is set by build process"); return 0; }
 string mode="${mode}";
+if(mode=="cancel") { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"started"),"ready"); Thread.Sleep(30000); return 0; }
 if(mode=="timeout") { Thread.Sleep(30000); return 0; }
 if(mode=="crash") return 9;
 string src=a[Array.IndexOf(a,"--source")+1], report=a[Array.IndexOf(a,"--report-path")+1];
@@ -120,6 +121,7 @@ File.WriteAllText(report,rows); return found==null?0:42;
 const fs=require('node:fs'), path=require('node:path');
 const a=process.argv.slice(2), mode=${JSON.stringify(mode)};
 if(a[0]==='version'){console.log('version is set by build process');process.exit(0)}
+if(mode==='cancel'){fs.writeFileSync(path.join(__dirname,'started'),'ready');setTimeout(()=>{},30000)} else
 if(mode==='timeout'){setTimeout(()=>{},30000)} else {
 if(mode==='crash')process.exit(9);
 const source=a[a.indexOf('--source')+1], report=a[a.indexOf('--report-path')+1];
@@ -154,7 +156,16 @@ function configRun(t, f, tool, setting) {
   writeFileSync(configPath, JSON.stringify(config));
   const usage = { input: 1, cached: 0, output: 1, reasoning: 0, cost: 0 };
   const responses = [
-    ...(tool ? [{ message: null, toolCalls: [tool], usage, stopReason: 'tool_calls' }] : []),
+    ...(tool
+      ? [
+          {
+            message: null,
+            toolCalls: Array.isArray(tool) ? tool : [tool],
+            usage,
+            stopReason: 'tool_calls',
+          },
+        ]
+      : []),
     { message: 'done', toolCalls: [], usage, stopReason: 'stop' },
   ];
   writeFileSync(
@@ -205,6 +216,132 @@ function noSecret(dir) {
     else assert.equal(readFileSync(file, 'utf8').includes(token), false, file);
   }
 }
+
+function historyTools(kind) {
+  const change = (id, search, replace) => ({
+    id,
+    name: 'edit',
+    arguments: { path: 'a.txt', search, replace },
+  });
+  const git = (id, subcommand, args) => ({ id, name: 'git', arguments: { subcommand, args } });
+  const content = kind === 'reverted-secret' ? 'aws_access_key_id = ' + token : 'clean';
+  return [
+    change('first', 'old', content),
+    git('add-first', 'add', ['a.txt']),
+    git('commit-first', 'commit', [
+      '-m',
+      kind === 'message-secret' ? 'aws_access_key_id = ' + token : 'first change',
+    ]),
+    change('second', content, 'old'),
+    git('add-second', 'add', ['a.txt']),
+    git('commit-second', 'commit', ['-m', 'restore original file']),
+  ];
+}
+
+for (const kind of ['reverted-secret', 'message-secret', 'clean'])
+  test('history gate fake scanner: ' + kind, async (t) => {
+    const f = fixture(t);
+    fake(t, f.dir);
+    configRun(t, f, historyTools(kind));
+    const result = await run(f);
+    assert.equal(
+      result.data.state,
+      kind === 'clean' ? 'SUCCEEDED' : 'FAILED_VALIDATION',
+      JSON.stringify(result),
+    );
+    assert.equal(JSON.stringify(result).includes(token), false);
+    noSecret(join(f.repo, '.tuig/runs', result.data.id));
+    assert.equal((await replayRun(result.data.id, f.repo)).data.verified, true);
+  });
+
+test('secret preparation limit blocks an oversized result before scanning', async (t) => {
+  const f = fixture(t);
+  fake(t, f.dir);
+  configRun(t, f, {
+    id: 'many',
+    name: 'run',
+    arguments: {
+      cwd: '.',
+      timeoutMs: 10000,
+      argv: [
+        process.execPath,
+        '-e',
+        'const fs=require("fs");for(let i=0;i<257;i++)fs.writeFileSync("file-"+i+".txt","clean "+i)',
+      ],
+    },
+  });
+  const result = await run(f);
+  assert.equal(result.data.state, 'ERROR', JSON.stringify(result));
+  assert.equal(result.data.secretGate.reason, 'preparation_limit');
+  assert.match(result.next_action, /256/);
+  assert.equal((await replayRun(result.data.id, f.repo)).data.verified, true);
+});
+
+test('cancelling during the secret scan yields prompt typed CANCELLED and replays', async (t) => {
+  const f = fixture(t);
+  const bin = fake(t, f.dir, 'cancel');
+  configRun(t, f);
+  const cancellation = new AbortController();
+  let started;
+  const timer = setInterval(() => {
+    if (!started && existsSync(join(bin, 'started'))) {
+      started = performance.now();
+      cancellation.abort();
+    }
+  }, 10);
+  let result;
+  try {
+    result = await runCommand({
+      cwd: f.repo,
+      platform: 'linux',
+      instruction: 'Do nothing.',
+      interactive: false,
+      signal: cancellation.signal,
+    });
+  } finally {
+    clearInterval(timer);
+  }
+  assert.ok(started, 'scanner started');
+  assert.equal(result.data.state, 'CANCELLED', JSON.stringify(result));
+  assert.equal(result.data.secretGate.status, 'cancelled');
+  assert.ok(performance.now() - started < 5000, 'cancel stops the scanner promptly');
+  assert.equal((await replayRun(result.data.id, f.repo)).data.verified, true);
+});
+
+for (const kind of ['reverted-secret', 'message-secret', 'clean'])
+  test('history gate real gitleaks: ' + kind, { timeout: 60000 }, async (t) => {
+    const probe = spawnSync('gitleaks', ['version'], { encoding: 'utf8', timeout: 5000 });
+    if (probe.status !== 0) {
+      assert.notEqual(process.env.TUIG_REQUIRE_GITLEAKS, '1', 'real scanner required');
+      t.skip('gitleaks is not installed');
+      return;
+    }
+    const f = fixture(t);
+    configRun(t, f, historyTools(kind));
+    const cli = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL('../dist/main.js', import.meta.url)),
+        'run',
+        '--instruction',
+        'Perform the scripted commits.',
+      ],
+      {
+        cwd: f.repo,
+        env: { ...process.env, TUIG_OUTPUT: 'json' },
+        encoding: 'utf8',
+        timeout: 45000,
+      },
+    );
+    const result = JSON.parse(cli.stdout);
+    assert.equal(
+      result.data.state,
+      kind === 'clean' ? 'SUCCEEDED' : 'FAILED_VALIDATION',
+      JSON.stringify(result),
+    );
+    assert.equal((cli.stdout + cli.stderr).includes(token), false);
+    noSecret(join(f.repo, '.tuig/runs', result.data.id));
+  });
 
 test('required gate catches agent edit, records only safe finding metadata, and replays offline', async (t) => {
   const f = fixture(t);
@@ -298,7 +435,7 @@ test('missing scanner cannot succeed, even with an empty diff', async (t) => {
   assert.match(result.next_action, /Install gitleaks/);
 });
 
-test('clean changed files pass; committed and untracked result files are scanned; ignored files and deleted secrets are excluded', async (t) => {
+test('clean changed files pass; committed and untracked files are scanned; ignored files excluded; deleted committed secrets stay blocked', async (t) => {
   const f = fixture(t);
   fake(t, f.dir);
   writeFileSync(join(f.repo, 'a.txt'), 'clean\n');
@@ -320,7 +457,7 @@ test('clean changed files pass; committed and untracked result files are scanned
   ]);
   assert.equal((await secretGate(f.workspace)).status, 'fail');
   rmSync(join(f.repo, 'untracked.txt'));
-  assert.equal((await secretGate(f.workspace)).status, 'pass');
+  assert.equal((await secretGate(f.workspace)).status, 'fail');
 });
 
 for (const setting of ['required', 'off', undefined])

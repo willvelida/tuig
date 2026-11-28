@@ -187,6 +187,7 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           appendEvent(store, event.type, event.data);
         }
         const event = next();
+        cancelAtBoundary();
         if (!eligible) return { passed: true };
         return {
           passed: event?.data.to === 'SUCCEEDED',

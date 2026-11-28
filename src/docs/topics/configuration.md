@@ -14,10 +14,22 @@ Doctor also degrades if gitleaks is missing. A working tool with an unparseable
 version is reported as available with version unknown.
 
 The gate scans complete resulting files changed from the run base, including
-committed and non-ignored untracked changes in diff.patch. Ignored files are
-excluded consistently with the result diff, even though the protected-test gate
-and oracle snapshot have a broader ignored-file view. Deleted files and unchanged
-history are excluded. A pre-existing secret in a changed file also blocks success.
+non-ignored untracked changes in diff.patch. It also scans every added or modified
+blob in every commit reachable in base..HEAD, including each parent of merges,
+and every commit message in that range. Reverting or deleting a committed secret
+does not remove it from the delivered branch history and cannot bypass the gate.
+Distinct blobs are scanned once; message findings use commit/<id>/message as
+their file label. Ignored uncommitted files are excluded consistently with the
+result diff, even though the protected-test gate and oracle snapshot have a
+broader ignored-file view. History already reachable from the base is excluded;
+deletions do not exempt earlier versions committed during this run. A pre-existing
+secret in a changed file also blocks success.
+There are separate ten-second preparation and scanner deadlines. Preparation
+allows at most 256 changed paths per diff, 256 distinct blobs plus commit
+messages, 128 new commits and 64 MiB of scan content. Limit/deadline failures
+record a specific diagnostic and next_action to split the work into smaller
+runs. A legitimate large diff or slow scan can therefore end in ERROR. Cancel
+and Ctrl-C stop the scanner and produce CANCELLED, never success.
 Repository scanner configurations, ignore files and inline gitleaks suppression
 comments cannot disable this gate. Only rule, original file, line and a redacted
 marker are recorded; scanner output and private reports are discarded.

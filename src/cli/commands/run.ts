@@ -108,6 +108,7 @@ export async function runCommand(options: {
   sandbox?: Sandbox | null;
   /** Continue a cancelled or interrupted run from its last checkpoint. */
   resume?: string;
+  signal?: AbortSignal;
 }): Promise<Envelope> {
   let terminal: TerminalIO | null = null;
   try {
@@ -225,6 +226,7 @@ export async function runCommand(options: {
       findings: [],
     };
     const result = await control({
+      ...(options.signal ? { signal: options.signal } : {}),
       root: workspace.path,
       store,
       start: {
@@ -275,18 +277,20 @@ export async function runCommand(options: {
         config.policy?.allowedCommands ?? checkConfig.checks.map((check) => check.argv),
       checks: checkConfig.checks,
       protectedTests: testPatterns,
-      finalize: async (eligible) => {
+      finalize: async (eligible, signal) => {
         if (eligible && config.secretGate === 'required') {
-          secretResult = await secretGate(workspace, sandbox ? { sandbox } : {});
+          secretResult = await secretGate(workspace, { signal, ...(sandbox ? { sandbox } : {}) });
           appendEvent(store, 'secret_gate', secretResult);
           if (secretResult.status === 'infrastructure_error') {
             protectionError = {
               code: 'TUIG_E_PREREQUISITE',
-              message: 'The required secret gate could not complete.',
-              fix: SECRET_GATE_FIX,
+              message: secretResult.message ?? 'The required secret gate could not complete.',
+              fix: secretResult.fix ?? SECRET_GATE_FIX,
             };
             return { passed: false, infrastructure: true, reason: 'Secret gate unavailable' };
           }
+          if (secretResult.status === 'cancelled')
+            return { passed: false, reason: 'Cancellation requested' };
           if (secretResult.status !== 'pass')
             return { passed: false, reason: 'Secret gate detected credentials in result files' };
         }

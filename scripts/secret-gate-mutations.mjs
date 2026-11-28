@@ -11,6 +11,13 @@ try {
   cpSync('test/secret-gate.test.mjs', join(directory, 'test/secret-gate.test.mjs'));
   const probes = [
     {
+      file: 'engine/secret-gate.js',
+      search: 'for (const commit of commits)',
+      replace: 'for (const commit of [])',
+      test: '^history gate fake scanner: reverted-secret$',
+      name: 'drop commit-history scanning',
+    },
+    {
       file: 'cli/commands/run.js',
       search: "if (eligible && config.secretGate === 'required')",
       replace: 'if (false)',
