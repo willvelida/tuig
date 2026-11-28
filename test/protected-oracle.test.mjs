@@ -202,6 +202,27 @@ test('oracle without a sandbox is an infrastructure outcome, never a pass', asyn
   assert.equal(existsSync(join(f.repo, 'tests-hidden')), false);
 });
 
+test('tracked oracle sources are refused even when Git normalizes their line endings', (t) => {
+  const f = oracleFixture(t);
+  const taskDir = join(f.repo, '.tuig', 'task');
+  mkdirSync(join(taskDir, 'tests-hidden'), { recursive: true });
+  const bytes = Buffer.from('def test_normalized_oracle():\r\n    assert True\r\n');
+  writeFileSync(join(taskDir, 'tests-hidden', 'test_oracle.py'), bytes);
+  writeFileSync(join(f.repo, '.gitattributes'), '*.py text eol=lf\n');
+  f.git(['add', '.gitattributes']);
+  f.git(['add', '-f', '.tuig/task/tests-hidden/test_oracle.py']);
+  const task = {
+    ...f.task,
+    oracle: {
+      ...f.task.oracle,
+      sha256: { hidden: createHash('sha256').update(bytes).digest('hex') },
+    },
+  };
+  assert.throws(() => loadOracle(f.repo, taskDir, task), { code: 'TUIG_E_ORACLE_REVIEW' });
+  f.git(['rm', '--cached', '-f', '.tuig/task/tests-hidden/test_oracle.py']);
+  assert.throws(() => loadOracle(f.repo, taskDir, task), { code: 'TUIG_E_ORACLE_REVIEW' });
+});
+
 test(
   'final oracle uses separate sandboxed snapshot; pass, assertion failure, timeout and missing interpreter are distinct',
   { skip: process.platform === 'win32', timeout: 30000 },

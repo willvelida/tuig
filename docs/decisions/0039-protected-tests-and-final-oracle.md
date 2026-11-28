@@ -32,8 +32,11 @@ Pin reviewed task oracle bytes and SHA-256 before the first model request.
 Only pytest and a finite positive `hiddenSec` timeout of at most one hour are
 supported. Verify source containment, reject symlinks, hash mismatches, sources
 in the visible repository, and identical bytes in any Git object (including
-unreachable objects and alternates). A task with an oracle requires an OS sandbox
-before any model request. Hide its source directory from every agent subprocess,
+unreachable objects and alternates).
+Tracked source paths are refused independently of blob hashes, and the object
+scan also checks LF-normalized bytes so Git line-ending conversion cannot hide
+exposure. A task with an oracle requires an OS sandbox before any model request.
+Hide its source directory from every agent subprocess,
 visible check and lint check. Additional hidden paths cannot overlap writable
 workspace mounts, and overlapping read-only tool exceptions are removed. File,
 search and Git tools retain their existing hidden-test restrictions.

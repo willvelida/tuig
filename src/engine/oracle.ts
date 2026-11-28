@@ -65,17 +65,29 @@ export function loadOracle(
   const bytes = readFileSync(file);
   if (createHash('sha256').update(bytes).digest('hex') !== sha256.hidden)
     throw codedError('TUIG_E_ORACLE_REVIEW');
+  const rel = relative(root, realpathSync(file));
+  const inRepository = !rel.startsWith('..' + sep) && !isAbsolute(rel);
+  if (inRepository) {
+    const tracked = runGit(['ls-files', '-z', '--', rel], root);
+    if (tracked.error || tracked.status !== 0 || tracked.stdout.length)
+      throw codedError('TUIG_E_ORACLE_REVIEW');
+    if (!rel.split(sep).includes('.tuig')) throw codedError('TUIG_E_ORACLE_REVIEW');
+  }
   // Even an ignored source is exposed if identical bytes exist anywhere in this object DB.
   const format = gitOutput(['rev-parse', '--show-object-format'], root);
-  const blob = createHash(format === 'sha256' ? 'sha256' : 'sha1')
-    .update(Buffer.from('blob ' + bytes.length + '\0'))
-    .update(bytes)
-    .digest('hex');
+  const variants = [bytes, Buffer.from(bytes.toString('utf8').replaceAll('\r\n', '\n'))];
+  const blobs = variants.map((content) =>
+    createHash(format === 'sha256' ? 'sha256' : 'sha1')
+      .update(Buffer.from('blob ' + content.length + '\0'))
+      .update(content)
+      .digest('hex'),
+  );
   const probe = runGit(['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'], root);
-  if (probe.error || probe.status !== 0 || probe.stdout.split(/\r?\n/).includes(blob))
-    throw codedError('TUIG_E_ORACLE_REVIEW');
-  const rel = relative(root, realpathSync(file));
-  if (!rel.startsWith('..' + sep) && !isAbsolute(rel) && !rel.split(sep).includes('.tuig'))
+  if (
+    probe.error ||
+    probe.status !== 0 ||
+    probe.stdout.split(/\r?\n/).some((object) => blobs.includes(object))
+  )
     throw codedError('TUIG_E_ORACLE_REVIEW');
   return {
     bytes,
