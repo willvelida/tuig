@@ -12,7 +12,7 @@ import {
 } from '../../engine/repository-state.js';
 import { detectSandbox } from '../../sandbox/index.js';
 import { commandFailure, rootAt } from './run.js';
-import { binaryUnderTest, selfHostConfig, verifySelfHost } from '../../engine/self-host.js';
+import { inspectBinaryUnderTest, selfHostConfig, verifySelfHost } from '../../engine/self-host.js';
 
 function configured<T>(read: () => T): T {
   try {
@@ -33,7 +33,9 @@ export async function checksCommand(cwd = process.cwd(), candidate?: string): Pr
     if (validateConfig(config).length) throw codedError('TUIG_E_CONFIG');
     const pin = selfHostConfig((config as Record<string, unknown>).selfHost);
     if (pin) verifySelfHost(root, pin, true);
-    const binary = candidate === undefined ? undefined : binaryUnderTest(candidate, root);
+    const candidateInfo =
+      candidate === undefined ? undefined : inspectBinaryUnderTest(candidate, root);
+    const binary = candidateInfo?.path;
     const checks = configured(() => loadChecks(root));
     for (const check of checks) {
       if (check.argv.includes('{binary-under-test}')) {
@@ -50,12 +52,23 @@ export async function checksCommand(cwd = process.cwd(), candidate?: string): Pr
       passEnv: settings.policy?.passEnv ?? [],
       ...(sandbox ? { sandbox } : {}),
     });
+    const finalCandidateInfo = candidateInfo
+      ? inspectBinaryUnderTest(candidateInfo.path, root)
+      : undefined;
     return data.verdict === 'ok'
-      ? envelope('checks', data, { status: 'ok' })
-      : envelope('checks', data, {
-          status: data.verdict,
-          next_action: 'Fix the reported diagnostics, then run tuig checks again.',
-        });
+      ? envelope(
+          'checks',
+          { ...data, ...(finalCandidateInfo ? { binaryUnderTest: finalCandidateInfo } : {}) },
+          { status: 'ok' },
+        )
+      : envelope(
+          'checks',
+          { ...data, ...(finalCandidateInfo ? { binaryUnderTest: finalCandidateInfo } : {}) },
+          {
+            status: data.verdict,
+            next_action: 'Fix the reported diagnostics, then run tuig checks again.',
+          },
+        );
   } catch (error) {
     return commandFailure('checks', error);
   }

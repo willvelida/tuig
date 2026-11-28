@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { delimiter } from 'node:path';
@@ -13,8 +21,60 @@ import { checksCommand } from '../dist/cli/commands/checks.js';
 import { runCommand } from '../dist/cli/commands/run.js';
 import { replayRun } from '../dist/cli/commands/replay.js';
 import { binaryHash, verifySelfHost } from '../dist/engine/self-host.js';
+import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { detectSandbox } from '../dist/sandbox/index.js';
+import { executeCheck } from '../dist/checks/execute.js';
 
 const require = createRequire(import.meta.url);
+test(
+  'review: sandboxed checks have private writable var tmp, never writable host temp',
+  { skip: process.platform !== 'linux' },
+  async (t) => {
+    const sandbox = detectSandbox();
+    if (!sandbox) {
+      assert.notEqual(process.env.TUIG_REQUIRE_SANDBOX, '1');
+      t.skip('requires real bwrap');
+      return;
+    }
+    const f = fixture(t),
+      marker = '/var/tmp/tuig-review-check-' + randomUUID();
+    t.after(() => rmSync(marker, { force: true }));
+    const check = {
+      name: 'private temp',
+      kind: 'gate',
+      parser: 'exit-code',
+      timeoutSec: 10,
+      argv: [
+        process.execPath,
+        '-e',
+        'require("node:fs").writeFileSync(' + JSON.stringify(marker) + ',"invented canary")',
+      ],
+    };
+    const result = await executeCheck(f.repo, check, { sandbox });
+    assert.equal(result.passed, true, JSON.stringify(result));
+    assert.equal(existsSync(marker), false, 'The outer host must never see the write');
+  },
+);
+test('review: confined exclusions are exactly the two reviewed named cases', async () => {
+  const file = resolve('scripts/self-host-test-policy.mjs');
+  assert.ok(existsSync(file), 'A reviewed exclusion policy must exist');
+  const { CONFINED_EXCLUSIONS, policyDigest } = await import(pathToFileURL(file).href);
+  assert.match(policyDigest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    CONFINED_EXCLUSIONS.map((item) => [item.file, item.name]),
+    [
+      [
+        'source-baseline.test.mjs',
+        'unchanged license bytes match HEAD without platform-specific line-ending filters',
+      ],
+      [
+        'sandbox.test.mjs',
+        'under the sandbox, writing outside the worktree fails; the worktree and temporary home are writable',
+      ],
+    ],
+  );
+});
 function bunPath() {
   const platform = process.platform === 'win32' ? 'windows' : process.platform;
   const arch = process.arch === 'arm64' ? 'aarch64' : process.arch;
@@ -250,6 +310,7 @@ test('self host doctor verifies hash, external path and clean tagged identity; s
   f.config.selfHost.pinnedSha256 = binaryHash(file);
   f.save();
   for (const value of [
+    { ...expected, candidate: true },
     {},
     { ...expected, dirty: true },
     { ...expected, commit: '0'.repeat(40) },
@@ -319,7 +380,12 @@ test('checks binary under test substitutes argv without replacing invoking harne
   }
 });
 
-for (const path of ['src/engine/policy.ts', 'fixtures/example/tests-hidden/test_hidden.py']) {
+for (const path of [
+  'src/engine/policy.ts',
+  'fixtures/example/tests-hidden/test_hidden.py',
+  'scripts/safety-fixtures.mjs',
+  'test/new.test.mjs',
+]) {
   test(
     'self hosted replay run denies and records protected attempt ' + path,
     { timeout: 60000 },
@@ -389,6 +455,70 @@ for (const path of ['src/engine/policy.ts', 'fixtures/example/tests-hidden/test_
     },
   );
 }
+
+test('review: candidate selection never executes candidate with host credentials', async (t) => {
+  const f = fixture(t),
+    marker = join(f.dir, 'outside-marker');
+  const candidate = join(f.dir, process.platform === 'win32' ? 'candidate.exe' : 'candidate');
+  const entry = join(f.dir, 'candidate.js');
+  writeFileSync(
+    entry,
+    'require("node:fs").writeFileSync(' +
+      JSON.stringify(marker) +
+      ',process.env.TUIG_REVIEW_CANARY || "absent"); console.log(JSON.stringify({status:"ok",data:{version:process.env.TUIG_REVIEW_CANARY}}))',
+  );
+  compile(entry, candidate);
+  const old = process.env.TUIG_REVIEW_CANARY;
+  process.env.TUIG_REVIEW_CANARY = 'invented-review-canary';
+  t.after(() => {
+    if (old === undefined) delete process.env.TUIG_REVIEW_CANARY;
+    else process.env.TUIG_REVIEW_CANARY = old;
+  });
+  f.config.secretGate = 'off';
+  f.save();
+  writeFileSync(
+    join(f.repo, '.tuig/checks.json'),
+    JSON.stringify({
+      schema_version: 1,
+      checks: [{ name: 'safe', argv: [process.execPath, '-e', 'process.exit(0)'] }],
+    }),
+  );
+  const result = await checksCommand(f.repo, candidate);
+  assert.equal(result.status, 'ok');
+  assert.equal(existsSync(marker), false, 'Candidate must not execute during selection');
+  assert.deepEqual(result.data.binaryUnderTest, {
+    path: realpathSync(candidate),
+    sha256: binaryHash(candidate),
+  });
+  assert.ok(!JSON.stringify(result).includes(process.env.TUIG_REVIEW_CANARY));
+});
+
+test('review: candidate build needs no Git and remains unpinnable', { timeout: 60000 }, (t) => {
+  const f = fixture(t),
+    output = join(f.dir, process.platform === 'win32' ? 'build.exe' : 'build');
+  const env = { ...process.env, PATH: join(f.dir, 'no-git') };
+  const build = exec(
+    process.execPath,
+    ['scripts/build-binary.mjs', '--candidate', '--outfile', output],
+    { cwd: resolve('.'), env },
+  );
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const id = JSON.parse(exec(output, ['--build-identity']).stdout);
+  assert.equal(id.candidate, true);
+  assert.equal(id.dirty, true);
+  assert.equal(id.commit, null);
+  const file = pinFile();
+  require('node:fs').copyFileSync(output, file);
+  setPin(f, file);
+  const diagnosis = JSON.parse(exec(file, ['doctor', '--json'], { cwd: f.repo }).stdout);
+  assert.equal(diagnosis.error.code, 'TUIG_E_SELFHOST_UNPINNED');
+  const normal = exec(process.execPath, ['scripts/build-binary.mjs', '--outfile', output], {
+    cwd: resolve('.'),
+    env,
+  });
+  assert.notEqual(normal.status, 0);
+  assert.match(normal.stderr, /Cannot establish build identity/);
+});
 
 test(
   'self host final diff records protected writes after an earlier gate error',

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { delimiter, isAbsolute, join, relative } from 'node:path';
 import { SAFE_GIT_ENV } from '../../engine/git.js';
 import { workspacePath } from './paths.js';
 import { sandboxArgv, sandboxSpec, type Sandbox } from '../../sandbox/index.js';
@@ -28,6 +28,8 @@ export type ProcessOptions = {
   additionalWritablePaths?: string[];
   /** Host-owned visible checks isolate Python bytecode from writable sources. */
   pythonCacheIsolation?: boolean;
+  /** Confined checks get a private /var/tmp; never a writable host temporary mount. */
+  checkTempIsolation?: boolean;
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -97,6 +99,25 @@ export async function runProcess(
           !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\')
         );
       };
+      if (options.checkTempIsolation && options.sandbox?.kind === 'bwrap') {
+        spec.hidden.push('/var/tmp');
+        // Nested fixture tools may live in the outer check's private /var/tmp.
+        // Re-expose only their exact PATH directories read-only, never /var/tmp itself.
+        spec.readOnly.push(
+          ...(process.env.PATH ?? '')
+            .split(delimiter)
+            .map((path) => {
+              try {
+                return realpathSync(path);
+              } catch {
+                return '';
+              }
+            })
+            .filter(
+              (path) => path.startsWith('/var/tmp/') && !spec.writable.some((w) => inside(w, path)),
+            ),
+        );
+      }
       for (const path of options.hiddenReadPaths ?? []) {
         if (spec.writable.some((w) => inside(w, path) || inside(path, w)))
           throw new Error('Oracle isolation overlaps workspace.');

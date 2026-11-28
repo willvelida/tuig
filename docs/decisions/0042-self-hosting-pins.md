@@ -48,8 +48,9 @@ audit so an infrastructure error cannot erase the selfHost block. The existing
 redactor still governs summary paths, with the same format limitations as the
 existing diff artifact; this is not a new secret-detection mechanism.
 
-checks --binary-under-test validates a regular executable with a bounded --version
-probe. Trusted argv entries exactly equal to {binary-under-test} are replaced with
+checks --binary-under-test statically validates a regular executable and records
+its bounded SHA-256 (refreshed after checks can rebuild it). No candidate probe
+executes in the host environment. Trusted argv entries exactly equal to {binary-under-test} are replaced with
 its absolute path; they default to bin/tuig for the repository's ordinary build
 then safety-check sequence. This does not change the invoking harness. The safety
 fixture script passes that binary as the executable for its real CLI runs rather
@@ -58,7 +59,42 @@ next_action. No shell interpolation or environment-based executable selection is
 added. In run worktrees the default resolves against the worktree after creation;
 the preceding trusted build check creates it before the safety suite.
 
-## Consequences
+## Review round 1 corrections
+
+Candidate selection is static only: resolve a regular executable, check execution
+permission and hash through the bounded reader, then record path/SHA in the
+checks result. Never run its version probe with host environment/credentials.
+Candidate execution belongs to the confined safety check. Candidate build mode
+skips Git and embeds unknown/dirty/candidate identity, explicitly rejected by
+doctor; normal builds continue to require real Git identity. Main .git remains
+hidden from worktree check sandboxes.
+
+Shards use fresh worktree-local TMPDIR/TEMP/TMP. Linux visible checks also use a
+private /var/tmp through the existing tmpfs mechanism, selected in non-protected
+runner code. Host /var/tmp remains inaccessible for writes. Exact external PATH
+directories there may be re-exposed read-only for nested fixture tools. The
+trusted shard --sandboxed mode clears inherited Git/Python overrides only for
+fixture test processes so plain-tool controls work; actual harness subprocesses
+reapply minimalEnv protection. An untyped fixture package boundary isolates tools
+from the surrounding ESM package scope, preserving Node syntax detection and
+CommonJS extensionless tools. No sandbox/main test is weakened. Exactly two
+confined-only named exclusions are reviewed in self-host-test-policy.mjs, pinned
+by count/digest and an explicit guard test: the real-HEAD license guard (main .git
+must remain hidden), and the nested mount parent-temp escape control (the outer
+writable mount cannot become a fresh host boundary without changing protected
+sandbox code). Both files still load and all new/other names run; neither is a
+whole-file omission. Both cases run in full CI/outside acceptance, and each shard
+prints the policy. Working nested sandbox/gitleaks are required, never silently
+skipped. The simulation script performs real workspace/setup/baseline/check
+execution with step timings and no agent/model.
+
+Acceptance scripts/package/lock/ESLint/TypeScript/Prettier configuration are
+protected. protectedTests matches also appear in selfHost summary attribution;
+test additions/edits need human approval. Pinning/acceptance use Linux storage,
+not DrvFs; trust and execute acceptance inside the returned change worktree.
+Template lock stays an upstream baseline, not customized config integrity.
+Document identity comparison, full outside-sandbox acceptance without credentials
+and the regular-x64 resolver's lack of baseline fallback.
 
 Pins are manually installed outside the repository. Temporary fake executables
 and invented tagged test repositories exercise provenance without running an

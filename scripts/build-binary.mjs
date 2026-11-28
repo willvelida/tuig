@@ -1,6 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { parseArgs } from 'node:util';
+const { values } = parseArgs({
+  options: { candidate: { type: 'boolean' }, outfile: { type: 'string' } },
+});
 function git(args) {
   const result = spawnSync(
     'git',
@@ -14,11 +18,13 @@ function git(args) {
   if (result.error || result.status !== 0) throw new Error('Cannot establish build identity');
   return result.stdout.trim();
 }
-const identity = {
-  commit: git(['rev-parse', 'HEAD']),
-  tree: git(['rev-parse', 'HEAD^{tree}']),
-  dirty: git(['status', '--porcelain', '--untracked-files=normal']).length > 0,
-};
+const identity = values.candidate
+  ? { commit: null, tree: null, dirty: true, candidate: true }
+  : {
+      commit: git(['rev-parse', 'HEAD']),
+      tree: git(['rev-parse', 'HEAD^{tree}']),
+      dirty: git(['status', '--porcelain', '--untracked-files=normal']).length > 0,
+    };
 mkdirSync('bin', { recursive: true });
 const require = createRequire(import.meta.url);
 const platform = process.platform === 'win32' ? 'windows' : process.platform;
@@ -49,7 +55,7 @@ const result = spawnSync(
     '--compile',
     'src/main.ts',
     '--outfile',
-    'bin/tuig',
+    values.outfile ?? 'bin/tuig',
     '--define',
     'TUIG_BUILD_IDENTITY=' + JSON.stringify(identity),
   ],

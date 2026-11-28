@@ -8,7 +8,7 @@
     },
     {
       "name": "offline dependencies",
-      "argv": ["npm", "ci", "--offline", "--ignore-scripts"],
+      "argv": ["npm", "ci", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"],
       "timeoutSec": 60
     }
   ],
@@ -16,11 +16,11 @@
     { "name": "lint", "argv": ["npm", "run", "lint"], "timeoutSec": 60 },
     { "name": "typecheck", "argv": ["npm", "run", "typecheck"], "timeoutSec": 60 },
     { "name": "build test modules", "argv": ["npm", "run", "build"], "timeoutSec": 60 },
-    { "name": "unit and integration tests 1 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "0"], "timeoutSec": 60 },
-    { "name": "unit and integration tests 2 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "1"], "timeoutSec": 60 },
-    { "name": "unit and integration tests 3 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "2"], "timeoutSec": 60 },
-    { "name": "unit and integration tests 4 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "3"], "timeoutSec": 60 },
-    { "name": "build binary under test", "argv": ["npm", "run", "build:binary"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 1 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "0", "--sandboxed"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 2 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "1", "--sandboxed"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 3 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "2", "--sandboxed"], "timeoutSec": 60 },
+    { "name": "unit and integration tests 4 of 4", "argv": ["node", "scripts/self-host-tests.mjs", "3", "--sandboxed"], "timeoutSec": 60 },
+    { "name": "build binary under test", "argv": ["npm", "run", "build:binary", "--", "--candidate"], "timeoutSec": 60 },
     { "name": "safety fixtures", "argv": ["node", "scripts/safety-fixtures.mjs", "--binary-under-test", "{binary-under-test}"], "timeoutSec": 60 }
   ]
 }

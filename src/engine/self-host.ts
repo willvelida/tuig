@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
+import {
+  accessSync,
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { codedError } from '../cli/errors.js';
@@ -88,8 +96,14 @@ export function verifySelfHost(root: string, pin: SelfHost, invoking = false): s
       commit?: unknown;
       tree?: unknown;
       dirty?: unknown;
+      candidate?: unknown;
     };
-    if (identity.dirty !== false || identity.commit !== commit || identity.tree !== tree)
+    if (
+      identity.candidate === true ||
+      identity.dirty !== false ||
+      identity.commit !== commit ||
+      identity.tree !== tree
+    )
       throw new Error('Unknown, dirty or untagged identity');
     if (invoking && binaryHash(process.execPath) !== pin.pinnedSha256)
       throw new Error('Invoking executable is not the pin');
@@ -98,26 +112,21 @@ export function verifySelfHost(root: string, pin: SelfHost, invoking = false): s
     throw codedError('TUIG_E_SELFHOST_UNPINNED');
   }
 }
-export function binaryUnderTest(path: string, root: string): string {
+export function inspectBinaryUnderTest(
+  path: string,
+  root: string,
+): { path: string; sha256: string } {
   try {
     const file = realpathSync(resolve(root, path));
-    binaryHash(file);
-    const result = spawnSync(file, ['--version'], {
-      encoding: 'utf8',
-      timeout: 5000,
-      maxBuffer: 16384,
-      shell: false,
-    });
-    if (result.error || result.status !== 0) throw new Error('Binary probe failed');
-    const value = JSON.parse(result.stdout) as {
-      command?: string;
-      status?: string;
-      data?: { version?: string };
-    };
-    if (value.status !== 'ok' || typeof value.data?.version !== 'string')
-      throw new Error('Invalid binary');
-    return file;
+    accessSync(file, constants.X_OK);
+    if (process.platform === 'win32' && !/\.(exe|com)$/i.test(file))
+      throw new Error('Not a native executable');
+    return { path: file, sha256: binaryHash(file) };
   } catch {
     throw codedError('TUIG_E_BINARY_UNDER_TEST');
   }
+}
+/** Static inspection only: candidate code must execute solely through confined checks. */
+export function binaryUnderTest(path: string, root: string): string {
+  return inspectBinaryUnderTest(path, root).path;
 }

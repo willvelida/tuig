@@ -163,7 +163,10 @@ export async function runCommand(options: {
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
     const checkConfig = { checks: loadChecks(root) };
     const setupCommands = loadSetup(root);
-    const selfPatterns = protectedTests(config.protectedPaths);
+    const selfPatterns = [
+      ...protectedTests(config.protectedPaths),
+      ...protectedTests(config.protectedTests),
+    ];
     const testPatterns = [...protectedTests(config.protectedTests), ...selfPatterns];
     if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (

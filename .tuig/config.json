@@ -11,7 +11,9 @@
     "src/engine/policy.ts", "src/engine/redact.ts", "src/engine/trust.ts", "src/engine/workspace.ts",
     "src/sandbox/**", "src/runner/adapter/**", "src/runner/budgets.ts", "src/runner/stuck.ts",
     "schemas/**", "fixtures/**", "eval/baselines/**", ".tuig/**", ".github/workflows/**",
-    "AGENTS.md", "docs/decisions/**"
+    "AGENTS.md", "docs/decisions/**", "scripts/**", "package.json", "package-lock.json",
+    "eslint.config.*", "tsconfig*.json", ".prettierrc*", "prettier.config.*",
+    ".prettierignore", ".eslintignore", ".editorconfig", ".npmrc", "bunfig.toml"
   ],
   "policy": { "passEnv": ["TUIG_NPM_CACHE_SEED", "npm_config_cache"] },
   "protectedTests": ["test/**", "tests/**", "tests-visible/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/conftest.py", "**/pytest.ini", "**/.pytest.ini", "**/pyproject.toml", "**/tox.ini", "**/setup.cfg"],

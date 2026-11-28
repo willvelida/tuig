@@ -80,6 +80,7 @@ export async function executeCheck(
     const result = await runProcess(root, check.argv, '.', check.timeoutSec * 1000, {
       ...options,
       pythonCacheIsolation: true,
+      checkTempIsolation: true,
     });
     onOutput?.(result.output);
     let diagnostics: Diagnostic[];
