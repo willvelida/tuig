@@ -90,10 +90,18 @@ export async function executeCheck(
       return {
         ...base,
         passed: false,
-        status: 'invalid_report',
+        status: result.status === 'ok' ? 'invalid_report' : result.status,
         exitCode: result.exitCode,
         diagnostics: [
-          diagnostic(check.name, 'Missing, oversized, or invalid ' + check.parser + ' report.'),
+          diagnostic(
+            check.name,
+            (result.status === 'ok'
+              ? ''
+              : 'Check ' + result.status + ' (exit ' + result.exitCode + '); ') +
+              'Missing, oversized, or invalid ' +
+              check.parser +
+              ' report.',
+          ),
         ],
       };
     }
