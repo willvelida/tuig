@@ -2,7 +2,12 @@ import { codedError } from '../cli/errors.js';
 import { existingRecord, readRun, type RunEvent } from '../engine/record.js';
 import type { Message, ModelResponse } from './adapter/types.js';
 import type { Totals } from './budgets.js';
-import { assistantMessage, repairMessage, toolMessage } from './controller.js';
+import {
+  assistantMessage,
+  repairMessage,
+  toolMessage,
+  type ValidationResult,
+} from './controller.js';
 
 export type ResumeWorkspace = { id: string; branch: string; base: string };
 export type ResumeTask = { taskId: string | null; instruction: string };
@@ -17,6 +22,7 @@ export type ResumePoint = {
   task: ResumeTask;
   conversation: Message[];
   totals: Totals;
+  repaired: Record<string, number>;
   /** Tool calls after the checkpoint: rolled back with it and re-proposed by the model, never re-run. */
   discarded: DiscardedCall[];
   previous: string;
@@ -48,16 +54,18 @@ function history(
   id: string,
   turn: number,
   depth = 0,
-): { conversation: Message[]; totals: Totals } {
+): { conversation: Message[]; totals: Totals; repaired: Record<string, number> } {
   if (depth > 100) throw codedError('TUIG_E_RESUME', 'Resume chain is too long.');
-  const { events } = readRun(existingRecord(root, id));
+  const store = existingRecord(root, id);
+  const { events } = readRun(store);
   const resumed = startOf(events).data.resume as { from: string; turn: number } | undefined;
   const prior = resumed
     ? history(root, resumed.from, resumed.turn, depth + 1)
-    : { conversation: [], totals: { ...ZERO } };
+    : { conversation: [], totals: { ...ZERO }, repaired: {} };
   const conversation = [...prior.conversation];
   const totals: Totals = { ...prior.totals };
-  let failed: string[] = [];
+  const repaired = new Map(Object.entries(prior.repaired));
+  let failed: string[] | ValidationResult['checks'] = [];
   for (const event of events) {
     if (event.type === 'model_request') {
       if (Number(event.data.step) >= turn) break;
@@ -78,15 +86,18 @@ function history(
         toolMessage(String(event.data.id), String(event.data.output), String(event.data.log)),
       );
     } else if (event.type === 'sensor_result') {
-      failed = (event.data.checks as { name: string; passed: boolean }[])
-        .filter((c) => !c.passed)
-        .map((c) => c.name);
+      const checks = (event.data.checks as ValidationResult['checks']).filter((c) => !c.passed);
+      failed = checks.some((c) => c.diagnostics !== undefined) ? checks : checks.map((c) => c.name);
     } else if (event.type === 'state_transition' && event.data.to === 'REPAIRING') {
       totals.repairs++;
-      conversation.push(repairMessage(failed));
+      for (const check of failed) {
+        const name = typeof check === 'string' ? check : check.name;
+        repaired.set(name, (repaired.get(name) ?? 0) + 1);
+      }
+      conversation.push(repairMessage(failed, store.clean));
     }
   }
-  return { conversation, totals };
+  return { conversation, totals, repaired: Object.fromEntries(repaired) };
 }
 
 /**

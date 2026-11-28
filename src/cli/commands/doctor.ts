@@ -5,6 +5,7 @@ import { envelope, type Envelope } from '../envelope.js';
 import { cliError } from '../errors.js';
 import { CLI_NAME } from '../name.js';
 import { detectSandbox } from '../../sandbox/index.js';
+import { selfHostConfig, verifySelfHost } from '../../engine/self-host.js';
 import {
   git,
   repositoryIdentity,
@@ -13,7 +14,7 @@ import {
   validateConfig,
 } from '../../engine/repository-state.js';
 
-export type Check = { name: string; ok: boolean; detail: string; fix?: string };
+export type Check = { name: string; ok: boolean; detail: string; fix?: string; code?: string };
 export function probe(name: string, argv: string[], cwd: string): { ok: boolean; detail: string } {
   const r = spawnSync(name, argv, { cwd, encoding: 'utf8', timeout: 5000, maxBuffer: 65536 });
   const ok = !r.error && (r.status === 0 || (name === 'sandbox-exec' && r.status === 1));
@@ -37,8 +38,8 @@ export function doctor(
   const platform = options.platform ?? process.platform;
   const checkTool = options.probe ?? probe;
   const checks: Check[] = [];
-  function add(name: string, ok: boolean, detail: string, fix: string): void {
-    checks.push(ok ? { name, ok, detail } : { name, ok, detail, fix });
+  function add(name: string, ok: boolean, detail: string, fix: string, code?: string): void {
+    checks.push(ok ? { name, ok, detail } : { name, ok, detail, fix, ...(code ? { code } : {}) });
   }
   const node = options.nodeVersion ?? process.versions.node;
   add('node', Number(node.split('.')[0]) >= 24, node, 'Install Node.js 24 or newer.');
@@ -52,9 +53,17 @@ export function doctor(
     ['bun', ['--version'], 'Install Bun to compile standalone executables.'],
     ['git', ['--version'], 'Install Git.'],
     ['rg', ['--version'], 'Install ripgrep.'],
+    ['gitleaks', ['version'], 'Install gitleaks on PATH; it is never downloaded automatically.'],
   ] as const) {
     const r = checkTool(name, [...argv], cwd);
-    add(name, r.ok, r.detail, fix);
+    add(
+      name,
+      r.ok,
+      name === 'gitleaks' && r.ok && !/\b\d+\.\d+\.\d+\b/.test(r.detail)
+        ? 'Available (version unknown)'
+        : r.detail,
+      fix,
+    );
   }
   if (platform === 'darwin' || platform === 'linux') {
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap';
@@ -112,13 +121,39 @@ export function doctor(
         { status: 'unconfigured', error, next_action: CLI_NAME + ' trust' },
       );
     }
-    const errors = validateConfig(JSON.parse(readFileSync(configPath, 'utf8')) as unknown);
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    const errors = validateConfig(config);
     add(
       'config',
       errors.length === 0,
       errors.length ? errors.join(' ') : 'Configuration is valid.',
       'Repair ' + configPath,
     );
+    add(
+      'secret gate',
+      config.secretGate === 'required',
+      config.secretGate === 'required'
+        ? 'Required.'
+        : 'Disabled (including legacy configurations).',
+      'Set secretGate to required in .tuig/config.json and install gitleaks on PATH.',
+    );
+    if (config.selfHost !== undefined) {
+      try {
+        const pin = selfHostConfig(config.selfHost);
+        if (!trusted || !pin || errors.length) throw new Error('Untrusted or invalid config');
+        verifySelfHost(root, pin, true);
+        add(
+          'self host',
+          true,
+          'Invoking pinned hash and clean tagged build identity verified.',
+          '',
+        );
+      } catch {
+        const error = cliError('TUIG_E_SELFHOST_UNPINNED');
+        add('self host', false, error.message, error.fix, error.code);
+        return envelope('doctor', { checks }, { status: 'error', error, next_action: error.fix });
+      }
+    }
     if (errors.length) throw new Error(errors.join(' '));
   } catch (cause) {
     const error = cliError('TUIG_E_CONFIG', cause instanceof Error ? cause.message : String(cause));

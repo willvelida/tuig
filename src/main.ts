@@ -10,6 +10,7 @@ import { cliError } from './cli/errors.js';
 import { outputMode, render, type OutputMode } from './cli/output.js';
 import { DOCS } from './docs/bundled.js';
 import { doctor } from './cli/commands/doctor.js';
+import { BUILD_IDENTITY } from './cli/build-identity.js';
 
 let mode: OutputMode = 'json';
 let result: Envelope;
@@ -28,7 +29,10 @@ if (process.exitCode === undefined) {
       allowPositionals: true,
       options: {
         version: { type: 'boolean' },
+        'build-identity': { type: 'boolean' },
+        'binary-under-test': { type: 'string' },
         help: { type: 'boolean' },
+        json: { type: 'boolean' },
         'write-agents-md': { type: 'boolean' },
         instruction: { type: 'string' },
         resume: { type: 'string' },
@@ -36,6 +40,19 @@ if (process.exitCode === undefined) {
       },
     });
     const [verb, operation, topic] = positionals;
+    if (values['build-identity']) {
+      if (positionals.length || Object.keys(values).length !== 1)
+        throw new Error('Use --build-identity alone.');
+      process.stdout.write(JSON.stringify(BUILD_IDENTITY) + '\n');
+      process.exit(0);
+    }
+    if (values['binary-under-test'] !== undefined && verb !== 'checks')
+      throw new Error('--binary-under-test is only valid with checks.');
+    if (values.json) {
+      if (verb !== 'checks' && verb !== 'doctor')
+        throw new Error('--json is only valid with checks or doctor.');
+      mode = 'json';
+    }
     if (values.instruction !== undefined && verb !== 'run')
       throw new Error('--instruction is only valid with run.');
     if (values.resume !== undefined && (verb !== 'run' || values.instruction !== undefined))
@@ -54,7 +71,7 @@ if (process.exitCode === undefined) {
             {
               usage:
                 CLI_NAME +
-                ' [--help | --version | agents-start-here | docs get <topic> | doctor | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | run --resume <id> | runs show <id> | runs replay <id> --adapter replay | runs cleanup <id>]',
+                ' [--help | --version | agents-start-here | docs get <topic> | doctor | checks [--json] [--binary-under-test <path>] | init [--write-agents-md] | trust | template diff | run <task-id> | run --instruction <text> | run --resume <id> | runs show <id> | runs replay <id> --adapter replay | runs cleanup <id>]',
             },
             { status: 'ok' },
           );
@@ -165,6 +182,9 @@ if (process.exitCode === undefined) {
     ) {
       const { replayRun } = await import('./cli/commands/replay.js');
       result = await replayRun(topic);
+    } else if (verb === 'checks' && positionals.length === 1) {
+      const { checksCommand } = await import('./cli/commands/checks.js');
+      result = await checksCommand(process.cwd(), values['binary-under-test']);
     } else if (verb === 'doctor' && positionals.length === 1) {
       result = doctor();
     } else {

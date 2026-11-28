@@ -5,11 +5,15 @@ import { readFile } from './read-file.js';
 import { edit } from './edit.js';
 import { search } from './search.js';
 import { runProcess } from './run.js';
+import { executeChecks } from '../../checks/execute.js';
+import type { Check } from '../../checks/config.js';
+import { lintChecks, lintUnavailable, newErrors } from '../../checks/lint-edit.js';
 import { abortWithReason } from './abort.js';
+import { isProtectedTest } from '../../engine/protected-tests.js';
 import { GIT_SUBCOMMANDS, gitTool, type GitSubcommand } from './git.js';
 import { resolveTarget, workspacePath } from './paths.js';
 import type { Sandbox } from '../../sandbox/index.js';
-import { realpathSync } from 'node:fs';
+import { realpathSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   describeCommand,
   evaluate,
@@ -26,6 +30,7 @@ const schema = (properties: Record<string, unknown>, required: string[]) => ({
   additionalProperties: false,
 });
 export const TOOL_SCHEMAS = {
+  run_checks: schema({}, []),
   read_file: schema({ path: text }, ['path']),
   search: schema({ path: text, pattern: text }, ['path', 'pattern']),
   edit: schema({ path: text, search: text, replace: { type: 'string' } }, [
@@ -66,7 +71,15 @@ const validators = Object.fromEntries(
 );
 export type ToolResult = {
   id: string;
-  status: 'ok' | 'invalid_args' | 'policy_denied' | 'nonzero_exit' | 'timeout' | 'cancelled';
+  status:
+    | 'ok'
+    | 'invalid_args'
+    | 'policy_denied'
+    | 'nonzero_exit'
+    | 'timeout'
+    | 'cancelled'
+    | 'lint_rejected'
+    | 'lint_failed';
   output: string;
   log: string;
   aborted?: string;
@@ -85,6 +98,9 @@ export type ToolOptions = {
   root: string;
   store: RecordStore;
   allowedCommands?: string[][];
+  /** Host-pinned visible checks; never reloaded from agent-editable workspace config. */
+  checks?: Check[];
+  protectedTests?: string[];
   /** Asked for consequential actions. Absent means non-interactive: deny. */
   approve?: (request: ApprovalRequest) => ApprovalDecision;
   /** Permission mode; defaults to ask. */
@@ -97,6 +113,7 @@ export type ToolOptions = {
   signal?: AbortSignal;
   /** OS sandbox for run commands, when available or required. */
   sandbox?: Sandbox;
+  hiddenReadPaths?: string[];
 };
 function lineCount(text: string): number {
   return text === '' ? 0 : text.split('\n').length;
@@ -155,7 +172,52 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
     });
     const args = call.arguments;
     try {
+      if (
+        typeof args.path === 'string' &&
+        /(?:^|[\\/])(?:tests-hidden|summary\.json)(?:[\\/]|$)/i.test(args.path)
+      ) {
+        appendEvent(options.store, 'test_tamper', {
+          paths: [args.path],
+          source: 'reserved_path',
+          count: 1,
+        });
+        throw new Error('Hidden oracle and harness verdict paths are never agent-accessible.');
+      }
       switch (call.name) {
+        case 'run_checks': {
+          if (!options.checks?.length) throw new Error('No host-pinned visible checks configured.');
+          const result = await executeChecks(
+            options.root,
+            options.checks,
+            {
+              ...(options.signal ? { signal: options.signal } : {}),
+              ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+              ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+              ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
+            },
+            (check) => {
+              enforce(
+                {
+                  ...options,
+                  allowedCommands: [
+                    ...(options.allowedCommands ?? []),
+                    ...options.checks!.map((c) => c.argv),
+                  ],
+                },
+                describeCommand(check.argv, options.root),
+                {
+                  id: call.id,
+                  tool: 'run_checks',
+                  cwd: '.',
+                  argv: check.argv,
+                },
+              );
+            },
+          );
+          output = JSON.stringify(result);
+          status = result.verdict === 'ok' ? 'ok' : 'nonzero_exit';
+          break;
+        }
         case 'read_file':
           enforce(options, facts('read_file'), { id: call.id, tool: 'read_file', cwd: '.' });
           output = readFile(options.root, args.path as string);
@@ -166,24 +228,94 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
           break;
         case 'edit': {
           const target = resolveTarget(options.root, args.path as string, 'write');
-          enforce(options, facts('edit', { protected: target.rule }), {
-            id: call.id,
-            tool: 'edit',
-            cwd: '.',
-            path: target.rel,
-            diffStat:
-              '-' +
-              lineCount(args.search as string) +
-              ' +' +
-              lineCount(args.replace as string) +
-              ' lines',
-          });
+          const protectedTest =
+            isProtectedTest(target.rel, options.protectedTests ?? []) ||
+            isProtectedTest(args.path as string, options.protectedTests ?? []);
+          if (protectedTest)
+            appendEvent(options.store, 'test_tamper', {
+              paths: [target.rel],
+              source: 'edit',
+              count: 1,
+            });
+          enforce(
+            options,
+            facts('edit', { protected: protectedTest ? 'protected-tests' : target.rule }),
+            {
+              id: call.id,
+              tool: 'edit',
+              cwd: '.',
+              path: target.rel,
+              diffStat:
+                '-' +
+                lineCount(args.search as string) +
+                ' +' +
+                lineCount(args.replace as string) +
+                ' lines',
+            },
+          );
+          const checks = lintChecks(options.checks ?? [], target.rel);
+          const runLint = () =>
+            executeChecks(
+              options.root,
+              checks,
+              {
+                ...(options.signal ? { signal: options.signal } : {}),
+                ...(options.passEnv ? { passEnv: options.passEnv } : {}),
+                ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+                ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
+              },
+              (check) =>
+                enforce(
+                  {
+                    ...options,
+                    allowedCommands: [
+                      ...(options.allowedCommands ?? []),
+                      ...checks.map((c) => c.argv),
+                    ],
+                  },
+                  describeCommand(check.argv, options.root),
+                  { id: call.id, tool: 'run_checks', cwd: '.', argv: check.argv },
+                ),
+            );
+          const before = checks.length ? await runLint() : undefined;
+          if (before && lintUnavailable(before.checks)) {
+            status = 'lint_failed';
+            output = JSON.stringify({
+              message: 'Pre-edit lint unavailable; edit not applied.',
+              checks: before.checks,
+            });
+            break;
+          }
+          const bytes = readFileSync(target.file);
           output = edit(
             target.file,
             args.path as string,
             args.search as string,
             args.replace as string,
           );
+          if (before) {
+            // Restore exact bytes on every inconclusive or rejected post-edit check.
+            let accepted = false;
+            try {
+              const after = await runLint();
+              const diagnostics = newErrors(before.checks, after.checks);
+              if (lintUnavailable(after.checks)) {
+                status = 'lint_failed';
+                output = JSON.stringify({
+                  message: 'Post-edit lint unavailable; edit restored.',
+                  checks: after.checks,
+                });
+              } else if (diagnostics.length) {
+                status = 'lint_rejected';
+                output = JSON.stringify({
+                  message: 'Edit restored: new lint errors.',
+                  diagnostics,
+                });
+              } else accepted = true;
+            } finally {
+              if (!accepted) writeFileSync(target.file, bytes);
+            }
+          }
           break;
         }
         case 'git': {
@@ -225,6 +357,7 @@ export async function executeTool(call: ToolCall, options: ToolOptions): Promise
               ...(options.signal ? { signal: options.signal } : {}),
               ...(options.passEnv ? { passEnv: options.passEnv } : {}),
               ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+              ...(options.hiddenReadPaths ? { hiddenReadPaths: options.hiddenReadPaths } : {}),
             },
           );
           output = result.output;

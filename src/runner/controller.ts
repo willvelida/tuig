@@ -8,16 +8,27 @@ import { budgets, preflight, afterResponse, type Budgets, type Totals } from './
 import { transition, TERMINAL, type State, type StateEvent } from './states.js';
 import { executeTool, TOOL_DEFINITIONS, untrusted, type ToolResult } from './tools/index.js';
 import { assemble } from './context.js';
+import type { Check } from '../checks/config.js';
+import type { Diagnostic } from '../checks/parsers.js';
 import { actionEntry, stuckDetector } from './stuck.js';
-export type ValidationResult = { checks: { name: string; passed: boolean }[] };
+export type ValidationResult = {
+  checks: { name: string; passed: boolean; kind?: Check['kind']; diagnostics?: Diagnostic[] }[];
+};
 export type ControllerOptions = {
   root: string;
   store: RecordStore;
   adapter: ModelAdapter;
   messages: Message[];
   validate: () => Promise<ValidationResult>;
+  /** Final host-only gates, after the agent loop has ended. Never returns feedback to the model. */
+  finalize?: (
+    eligible: boolean,
+    signal: AbortSignal,
+  ) => Promise<{ passed: boolean; infrastructure?: boolean; reason?: string }>;
   limits?: Partial<Budgets>;
   allowedCommands?: string[][];
+  checks?: Check[];
+  protectedTests?: string[];
   signal?: AbortSignal;
   handleSIGINT?: boolean;
   now?: () => number;
@@ -34,9 +45,15 @@ export type ControllerOptions = {
   /** Tool definitions sent with each request; replay supplies the recorded ones. */
   tools?: () => ToolDefinition[];
   /** Permission mode and repository rules for agent tool calls; defaults to ask. */
-  policy?: { mode: Mode; rules: PolicyRule[]; passEnv?: string[]; sandbox?: Sandbox };
+  policy?: {
+    mode: Mode;
+    rules: PolicyRule[];
+    passEnv?: string[];
+    sandbox?: Sandbox;
+    hiddenReadPaths?: string[];
+  };
   /** Continue an interrupted run: prior conversation and counters, carried over. */
-  resume?: { conversation: Message[]; totals: Totals };
+  resume?: { conversation: Message[]; totals: Totals; repaired?: Record<string, number> };
   /** Extra run_start fields, such as the workspace identity. */
   start?: Record<string, unknown>;
 };
@@ -61,10 +78,55 @@ export function assistantMessage(response: ModelResponse): Message {
 export function toolMessage(id: string, output: string, log: string): Message {
   return { role: 'tool', content: output, tool_call_id: id, log };
 }
-export function repairMessage(failed: string[]): Message {
+export function repairMessage(
+  failed: string[] | ValidationResult['checks'],
+  clean: (value: string) => string = (value) => value,
+): Message {
+  const structured = failed.filter(
+    (c): c is ValidationResult['checks'][number] => typeof c !== 'string',
+  );
+  const bounded: ValidationResult['checks'] = [];
+  let truncated = false;
+  let remaining = 12000;
+  for (const check of structured) {
+    const diagnostics: Diagnostic[] = [];
+    for (const d of check.diagnostics ?? []) {
+      const size = Buffer.byteLength(JSON.stringify(d));
+      if (size > remaining) {
+        truncated = true;
+        break;
+      }
+      diagnostics.push(d);
+      remaining -= size;
+    }
+    const value = {
+      name: check.name.slice(0, 256),
+      passed: check.passed,
+      ...(check.kind ? { kind: check.kind } : {}),
+      diagnostics,
+    };
+    const size = Buffer.byteLength(JSON.stringify(value));
+    if (check.name.length > 256) truncated = true;
+    if (Buffer.byteLength(JSON.stringify(bounded)) + size > 16000) {
+      truncated = true;
+      break;
+    }
+    bounded.push(value);
+  }
   return {
     role: 'user',
-    content: untrusted('sensor', 'Visible acceptance checks failed: ' + failed.join(', ')),
+    content: untrusted(
+      'sensor',
+      clean(
+        'Visible acceptance checks failed: ' +
+          (failed.every((c) => typeof c === 'string')
+            ? failed.join(', ')
+            : JSON.stringify({
+                checks: bounded,
+                truncated,
+              })),
+      ),
+    ),
   };
 }
 export async function control(
@@ -98,7 +160,7 @@ export async function control(
   let state: State = 'PENDING',
     reason = '',
     formatErrors = 0;
-  const repaired = new Map<string, number>();
+  const repaired = new Map<string, number>(Object.entries(options.resume?.repaired ?? {}));
   const stuck = stuckDetector();
   function move(event: StateEvent, detail = ''): void {
     const next = transition(state, event);
@@ -204,6 +266,8 @@ export async function control(
                 root: options.root,
                 store: options.store,
                 allowedCommands: options.allowedCommands ?? [],
+                ...(options.checks ? { checks: options.checks } : {}),
+                ...(options.protectedTests ? { protectedTests: options.protectedTests } : {}),
                 ...(options.policy ?? {}),
                 ...toolContext,
               });
@@ -246,7 +310,10 @@ export async function control(
         break;
       }
       if (!failed.length) {
-        move('succeed');
+        break;
+      }
+      if (failed.some((check) => check.kind === 'gate')) {
+        move('fail', 'Visible gate check failed');
         break;
       }
       if (
@@ -258,8 +325,22 @@ export async function control(
       }
       totals.repairs++;
       for (const check of failed) repaired.set(check.name, (repaired.get(check.name) ?? 0) + 1);
-      conversation.push(repairMessage(failed.map((check) => check.name)));
+      const feedback = repairMessage(
+        failed.some((c) => c.diagnostics !== undefined)
+          ? failed
+          : failed.map((check) => check.name),
+        options.store.clean,
+      );
+      conversation.push(feedback);
       move('repair');
+    }
+    const eligible = (state as State) === 'VALIDATING';
+    const final = await options.finalize?.(eligible, signal);
+    if (eligible && signal.aborted) move('cancel', 'Cancellation requested');
+    else if (eligible) {
+      if (final && !final.passed)
+        move(final.infrastructure ? 'error' : 'fail', final.reason ?? 'Final validation failed');
+      else move('succeed');
     }
   } catch {
     if (!TERMINAL.has(state))

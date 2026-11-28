@@ -1,6 +1,14 @@
 import { CLI_NAME } from './name.js';
 
 export const ERRORS = {
+  TUIG_E_SELFHOST_UNPINNED: {
+    message: 'Self-hosting requires a verified pinned executable from a clean tagged commit.',
+    fix: 'Follow docs/self-hosting.md: install the pin outside the repository, set selfHost.pinnedVersion/pinnedSha256, ensure the tag exists locally, and launch runs with that executable.',
+  },
+  TUIG_E_BINARY_UNDER_TEST: {
+    message: 'The binary under test is missing, invalid or cannot be executed.',
+    fix: 'Build the changed code with npm run build:binary, then pass its executable path to tuig checks --binary-under-test <path>.',
+  },
   TUIG_E_DIRTY: {
     message: 'Run base has uncommitted changes.',
     fix: 'Review and commit or otherwise preserve your changes before starting a run.',

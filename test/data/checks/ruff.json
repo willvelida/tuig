@@ -1,0 +1,75 @@
+[
+  {
+    "cell": null,
+    "code": "EXE002",
+    "end_location": {
+      "column": 1,
+      "row": 1
+    },
+    "filename": "/workspace/test_sample.py",
+    "fix": null,
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "The file is executable but no shebang is present",
+    "name": "shebang-missing-executable-file",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/shebang-missing-executable-file"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 10,
+      "row": 1
+    },
+    "filename": "/workspace/test_sample.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unused import: `os`"
+    },
+    "location": {
+      "column": 8,
+      "row": 1
+    },
+    "message": "`os` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "PLR0133",
+    "end_location": {
+      "column": 13,
+      "row": 5
+    },
+    "filename": "/workspace/test_sample.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 5
+    },
+    "message": "Two constants compared in a comparison, consider replacing `1 == 2`",
+    "name": "comparison-of-constant",
+    "noqa_row": 5,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/comparison-of-constant"
+  }
+]

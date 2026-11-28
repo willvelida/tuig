@@ -1,13 +1,14 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join, relative } from 'node:path';
 import { SAFE_GIT_ENV } from '../../engine/git.js';
 import { workspacePath } from './paths.js';
 import { sandboxArgv, sandboxSpec, type Sandbox } from '../../sandbox/index.js';
 
 export type ProcessResult = {
   output: string;
+  stdout: string;
   status: 'ok' | 'nonzero_exit' | 'timeout' | 'cancelled';
   exitCode: number | null;
 };
@@ -21,6 +22,14 @@ export type ProcessOptions = {
   graceMs?: number;
   /** OS sandbox confining the command to the worktree and its temporary home. */
   sandbox?: Sandbox;
+  /** Host-only oracle directories denied to agent subprocesses and visible checks. */
+  hiddenReadPaths?: string[];
+  /** Host-only final validation outputs, never accepted from agent tool arguments. */
+  additionalWritablePaths?: string[];
+  /** Host-owned visible checks isolate Python bytecode from writable sources. */
+  pythonCacheIsolation?: boolean;
+  /** Confined checks get a private /var/tmp; never a writable host temporary mount. */
+  checkTempIsolation?: boolean;
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -30,7 +39,11 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * through, HOME and TMPDIR point to a fresh temporary directory, Git hooks
  * stay disabled, and only explicitly configured names are added.
  */
-export function minimalEnv(home: string, passEnv: string[] = []): NodeJS.ProcessEnv {
+export function minimalEnv(
+  home: string,
+  passEnv: string[] = [],
+  pythonCacheIsolation = false,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...SAFE_GIT_ENV, HOME: home, TMPDIR: join(home, 'tmp') };
   const names = [
     'PATH',
@@ -40,6 +53,11 @@ export function minimalEnv(home: string, passEnv: string[] = []): NodeJS.Process
   ];
   for (const name of [...names, ...passEnv])
     if (process.env[name] !== undefined) env[name] = process.env[name];
+  if (pythonCacheIsolation) {
+    // A fresh process-private prefix prevents reading forged workspace bytecode.
+    env.PYTHONPYCACHEPREFIX = join(home, 'pycache');
+    env.PYTHONDONTWRITEBYTECODE = '1';
+  }
   if (process.platform === 'win32') env.TEMP = env.TMP = env.TMPDIR;
   return env;
 }
@@ -64,22 +82,52 @@ export async function runProcess(
   try {
     return await new Promise<ProcessResult>((settle) => {
       const chunks: Buffer[] = [];
+      const stdout: Buffer[] = [];
       let size = 0,
         reason: 'timeout' | 'cancelled' | null = null,
         overflow = false,
         exitCode: number | null = null,
         spawnError: Error | null = null,
         settled = false;
-      const command = options.sandbox
-        ? sandboxArgv(
-            options.sandbox,
-            sandboxSpec({ cwd: dir, writable: [workspacePath(root, '.'), home] }),
-            argv,
-          )
-        : argv;
+      const spec = sandboxSpec({
+        cwd: dir,
+        writable: [workspacePath(root, '.'), home, ...(options.additionalWritablePaths ?? [])],
+      });
+      const inside = (parent: string, child: string): boolean => {
+        const rel = relative(parent, child);
+        return (
+          !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\')
+        );
+      };
+      if (options.checkTempIsolation && options.sandbox?.kind === 'bwrap') {
+        spec.hidden.push('/var/tmp');
+        // Nested fixture tools may live in the outer check's private /var/tmp.
+        // Re-expose only their exact PATH directories read-only, never /var/tmp itself.
+        spec.readOnly.push(
+          ...(process.env.PATH ?? '')
+            .split(delimiter)
+            .map((path) => {
+              try {
+                return realpathSync(path);
+              } catch {
+                return '';
+              }
+            })
+            .filter(
+              (path) => path.startsWith('/var/tmp/') && !spec.writable.some((w) => inside(w, path)),
+            ),
+        );
+      }
+      for (const path of options.hiddenReadPaths ?? []) {
+        if (spec.writable.some((w) => inside(w, path) || inside(path, w)))
+          throw new Error('Oracle isolation overlaps workspace.');
+        spec.hidden.push(path);
+        spec.readOnly = spec.readOnly.filter((r) => !inside(r, path) && !inside(path, r));
+      }
+      const command = options.sandbox ? sandboxArgv(options.sandbox, spec, argv) : argv;
       const child = spawn(command[0]!, command.slice(1), {
         cwd: dir,
-        env: minimalEnv(home, options.passEnv),
+        env: minimalEnv(home, options.passEnv, options.pythonCacheIsolation),
         detached: true,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,7 +168,7 @@ export async function runProcess(
       };
       if (options.signal?.aborted) onAbort();
       else options.signal?.addEventListener('abort', onAbort, { once: true });
-      const collect = (data: Buffer): void => {
+      const collect = (data: Buffer, isStdout = false): void => {
         size += data.length;
         if (size > MAX_OUTPUT) {
           if (!overflow) terminate();
@@ -128,8 +176,9 @@ export async function runProcess(
           return;
         }
         chunks.push(data);
+        if (isStdout) stdout.push(data);
       };
-      child.stdout.on('data', collect);
+      child.stdout.on('data', (data: Buffer) => collect(data, true));
       child.stderr.on('data', collect);
       // Background children keep the pipes open after the leader exits; reap them.
       child.on('exit', (code) => {
@@ -155,6 +204,7 @@ export async function runProcess(
             '; its process group was terminated.';
         settle({
           output,
+          stdout: Buffer.concat(stdout).toString('utf8'),
           status: reason ?? (exitCode === 0 && !overflow && !spawnError ? 'ok' : 'nonzero_exit'),
           exitCode,
         });

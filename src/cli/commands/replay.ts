@@ -8,6 +8,7 @@ import {
   readArtifact,
   readRun,
   writeArtifact,
+  writeSummary,
   type RunEvent,
 } from '../../engine/record.js';
 import { replayAdapter } from '../../runner/adapter/replay.js';
@@ -53,7 +54,44 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
     )
       cancellation.abort();
     const start = source.events.find((event) => event.type === 'run_start');
-    if (!start) throw adapterError('TUIG_E_REPLAY');
+    const prefix = source.events.slice(0, start?.seq ?? source.events.length);
+    if (!start) {
+      const summary = source.summary as { state?: string; setup?: { status?: string } } | null;
+      if (
+        !summary?.setup ||
+        !['fail', 'cancelled'].includes(summary.setup.status ?? '') ||
+        !['ERROR', 'CANCELLED'].includes(summary.state ?? '') ||
+        prefix.some(
+          (e) => !['setup_start', 'setup_result', 'state_transition', 'run_end'].includes(e.type),
+        )
+      )
+        throw adapterError('TUIG_E_REPLAY');
+      for (const event of prefix) appendEvent(store, event.type, event.data);
+      for (const event of prefix.filter((e) => e.type === 'setup_result')) {
+        const log = String(event.data.log);
+        writeArtifact(store, log, readArtifact(sourceStore, log));
+      }
+      writeSummary(store, { ...summary, id: replayId });
+      return envelope(
+        'runs replay',
+        {
+          id,
+          replayId,
+          state: summary.state,
+          verified: isDeepStrictEqual(comparable(readRun(store).events), comparable(source.events)),
+        },
+        { status: 'ok' },
+      );
+    }
+    if (prefix.some((e) => !['setup_start', 'setup_result'].includes(e.type)))
+      throw adapterError('TUIG_E_REPLAY');
+    for (const event of prefix) {
+      appendEvent(store, event.type, event.data);
+      if (event.type === 'setup_result') {
+        const log = String(event.data.log);
+        writeArtifact(store, log, readArtifact(sourceStore, log));
+      }
+    }
     const requests = source.events.filter((event) => event.type === 'model_request');
     let requestIndex = 0;
     const adapter = {
@@ -90,7 +128,15 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           ? Number((start.data.budgets as Budgets).wallSeconds) * 1000
           : 0,
       ...(start.data.resume
-        ? { resume: { conversation: [], totals: (start.data.resume as { totals: Totals }).totals } }
+        ? {
+            resume: {
+              conversation: [],
+              totals: (start.data.resume as { totals: Totals }).totals,
+              ...((start.data.resume as { repaired?: Record<string, number> }).repaired
+                ? { repaired: (start.data.resume as { repaired: Record<string, number> }).repaired }
+                : {}),
+            },
+          }
         : {}),
       start: Object.fromEntries(
         Object.entries(start.data).filter(
@@ -118,6 +164,7 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
           const event = next()!;
           appendEvent(store, 'tool_intent', event.data);
         }
+        if (next()?.type === 'test_tamper') appendEvent(store, 'test_tamper', next()!.data);
         if (next()?.type === 'approval_requested') {
           if (!context.approve) throw adapterError('TUIG_E_REPLAY');
           context.approve(next()!.data.request as ApprovalRequest);
@@ -163,9 +210,38 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
         }
         return { checks: event.data.checks as ValidationResult['checks'] };
       },
+      finalize: async (eligible) => {
+        while (
+          [
+            'approval_requested',
+            'approval_decided',
+            'test_tamper',
+            'oracle_result',
+            'secret_gate',
+            'policy_denied',
+          ].includes(next()?.type ?? '')
+        ) {
+          const event = next()!;
+          appendEvent(store, event.type, event.data);
+        }
+        const event = next();
+        cancelAtBoundary();
+        if (!eligible) return { passed: true };
+        return {
+          passed: event?.data.to === 'SUCCEEDED',
+          infrastructure: event?.data.to === 'ERROR',
+          reason: String(event?.data.reason ?? ''),
+        };
+      },
     });
     writeArtifact(store, 'diff.patch', source.diff);
     const rebuilt = readRun(store);
+    const sourceSummary = source.summary as Record<string, unknown> | null;
+    if (sourceSummary?.selfHost)
+      writeSummary(store, {
+        ...(rebuilt.summary as Record<string, unknown>),
+        selfHost: sourceSummary.selfHost,
+      });
     const verified = isDeepStrictEqual(comparable(rebuilt.events), comparable(source.events));
     if (!verified)
       throw adapterError('TUIG_E_REPLAY', 'Rebuilt event sequence differs from the recorded run.');

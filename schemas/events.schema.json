@@ -1,6 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "tuig run event v1",
+  "definitions": {
+    "tool_call_status": {
+      "description": "Known tool_call statuses; data remains open for legacy and future records.",
+      "enum": ["ok", "invalid_args", "policy_denied", "nonzero_exit", "timeout", "cancelled", "lint_rejected", "lint_failed"]
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -25,11 +31,16 @@
     "type": {
       "enum": [
         "run_start",
+        "setup_start",
+        "setup_result",
         "model_request",
         "model_response",
         "tool_intent",
         "tool_call",
         "sensor_result",
+        "test_tamper",
+        "oracle_result",
+        "secret_gate",
         "approval_requested",
         "approval_decided",
         "policy_denied",

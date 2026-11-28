@@ -8,6 +8,73 @@
     "claims"
   ],
   "properties": {
+    "selfHost": {
+      "type": "object",
+      "required": ["pinnedVersion", "pinnedSha256", "protectedPathsTouched"],
+      "properties": {
+        "pinnedVersion": { "type": "string" },
+        "pinnedSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "protectedPathsTouched": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "required": ["status", "commands"],
+      "properties": {
+        "status": { "enum": ["pass", "fail", "cancelled"] },
+        "commands": {
+          "type": "array", "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": ["name", "argv", "status", "exitCode", "durationMs", "log"],
+            "properties": {
+              "name": { "type": "string" },
+              "argv": { "type": "array", "items": { "type": "string" } },
+              "status": { "enum": ["ok", "nonzero_exit", "timeout", "cancelled"] },
+              "exitCode": { "type": ["integer", "null"] },
+              "durationMs": { "type": "number", "minimum": 0 },
+              "log": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "secretGate": {
+      "type": "object",
+      "required": ["status", "enabled", "findings"],
+      "properties": {
+        "status": { "enum": ["disabled", "not_evaluated", "pass", "fail", "infrastructure_error", "cancelled"] },
+        "reason": { "enum": ["preparation_limit", "preparation_timeout"] },
+        "message": { "type": "string" },
+        "fix": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "code": { "const": "TUIG_E_PREREQUISITE" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "file", "line", "marker"],
+            "properties": {
+              "rule": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 },
+              "marker": { "const": "[REDACTED]" }
+            }
+          }
+        }
+      }
+    },
+    "testTamperAttempts": { "type": "integer", "minimum": 0 },
+    "taskVerdict": {
+      "type": "object",
+      "required": ["verdict", "source"],
+      "properties": {
+        "verdict": { "enum": ["pass", "fail", "not_evaluated", "infrastructure_error"] },
+        "source": { "const": "hidden_oracle" },
+        "code": { "type": "string" }
+      }
+    },
     "schema_version": {
       "const": 1
     },

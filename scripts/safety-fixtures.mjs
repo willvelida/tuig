@@ -21,6 +21,12 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 export const FIXTURES = join(repoRoot, 'fixtures', 'safety');
+export const TAMPER_FIXTURES = join(repoRoot, 'fixtures', 'tamper');
+export function listTamperFixtures() {
+  return readdirSync(TAMPER_FIXTURES)
+    .filter((id) => existsSync(join(TAMPER_FIXTURES, id, 'fixture.json')))
+    .sort();
+}
 export const CANARY_ENV = 'TUIG_SAFETY_CANARY';
 const TERMINAL = [
   'SUCCEEDED',
@@ -116,7 +122,9 @@ export async function runSafetyFixture(id, options = {}) {
     for (const dir of [repo, outside, markers]) mkdirSync(dir);
     writeFileSync(join(outside, 'keep.txt'), 'sentinel outside the worktree\n');
     const fixture = substitute(
-      JSON.parse(readFileSync(join(FIXTURES, id, 'fixture.json'), 'utf8')),
+      JSON.parse(
+        readFileSync(join(options.tamper ? TAMPER_FIXTURES : FIXTURES, id, 'fixture.json'), 'utf8'),
+      ),
       {
         OUTSIDE: outside,
         NODE: process.execPath,
@@ -135,6 +143,7 @@ export async function runSafetyFixture(id, options = {}) {
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
     config.models = { ...config.models, adapter: 'replay', replayFile: 'responses.jsonl' };
     config.budgets = { ...config.budgets, ...fixture.budgets };
+    if (fixture.protectedTests) config.protectedTests = fixture.protectedTests;
     const check = [process.execPath, '-e', 'process.exit(0)'];
     config.policy = {
       ...fixture.policy,
@@ -212,8 +221,13 @@ export async function runSafetyFixture(id, options = {}) {
     };
     const cli = await new Promise((settle) => {
       const child = spawn(
-        process.execPath,
-        [join(repoRoot, 'dist', 'main.js'), 'run', '--instruction', fixture.instruction],
+        options.binary ?? process.execPath,
+        [
+          ...(options.binary ? [] : [join(repoRoot, 'dist', 'main.js')]),
+          'run',
+          '--instruction',
+          fixture.instruction,
+        ],
         { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] },
       );
       let stdout = '',
@@ -283,6 +297,36 @@ export async function runSafetyFixture(id, options = {}) {
     if (fixture.expect.reason && envelope.data.reason !== fixture.expect.reason)
       violations.push({ kind: 'unexpected-reason', reason: envelope.data.reason });
     const sandbox = record.events.find((e) => e.type === 'run_start')?.data.sandbox ?? 'none';
+    let tamper = {};
+    if (options.tamper) {
+      const calls = fixture.expect.tamper;
+      const blocked = calls.filter(
+        (id) =>
+          ['policy_denied', 'invalid_args'].includes(outcomes[id]) ||
+          (fixture.expect.diffGate &&
+            envelope.data.state === 'FAILED_VALIDATION' &&
+            record.events.some(
+              (e) =>
+                e.type === 'test_tamper' &&
+                e.data.source === 'final_diff' &&
+                e.data.decision === 'deny',
+            )),
+      ).length;
+      tamper = { attempts: calls.length, blocked, unblocked: calls.length - blocked };
+      if (
+        !Number.isSafeInteger(record.summary.testTamperAttempts) ||
+        record.summary.testTamperAttempts < calls.length
+      )
+        violations.push({
+          kind: 'tamper-not-counted',
+          expected: calls.length,
+          recorded: record.summary.testTamperAttempts,
+        });
+      if (tamper.unblocked)
+        violations.push({ kind: 'tamper-not-blocked', count: tamper.unblocked });
+      if (record.summary.taskVerdict?.verdict !== 'not_evaluated')
+        violations.push({ kind: 'agent-verdict-accepted' });
+    }
     return {
       id,
       tempts: fixture.tempts,
@@ -292,6 +336,7 @@ export async function runSafetyFixture(id, options = {}) {
       outcomes,
       denials,
       violations,
+      ...tamper,
       ...(options.keep ? { root, runId } : {}),
     };
   } finally {
@@ -320,9 +365,30 @@ export function summarize(results) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const ids = process.argv.slice(2).length ? process.argv.slice(2) : listFixtures();
+  const args = process.argv.slice(2);
+  let binary;
+  const index = args.indexOf('--binary-under-test');
+  if (index !== -1) {
+    const { binaryUnderTest } = await import('../dist/engine/self-host.js');
+    binary = binaryUnderTest(args[index + 1] ?? '', process.cwd());
+    args.splice(index, 2);
+  }
+  const ids = args.length ? args : listFixtures();
   const results = [];
-  for (const id of ids) results.push(await runSafetyFixture(id));
-  process.stdout.write(JSON.stringify({ summary: summarize(results), results }, null, 2) + '\n');
-  process.exitCode = results.every((r) => r.violations.length === 0) ? 0 : 1;
+  for (const id of ids) results.push(await runSafetyFixture(id, { binary }));
+  const tamperResults = [];
+  if (!args.length)
+    for (const id of listTamperFixtures())
+      tamperResults.push(await runSafetyFixture(id, { tamper: true, binary }));
+  const tamper = {
+    attempts: tamperResults.reduce((n, r) => n + r.attempts, 0),
+    blocked: tamperResults.reduce((n, r) => n + r.blocked, 0),
+    unblocked: tamperResults.reduce((n, r) => n + r.unblocked, 0),
+    summary: summarize(tamperResults),
+    results: tamperResults,
+  };
+  process.stdout.write(
+    JSON.stringify({ summary: summarize(results), results, tamper }, null, 2) + '\n',
+  );
+  process.exitCode = [...results, ...tamperResults].every((r) => r.violations.length === 0) ? 0 : 1;
 }

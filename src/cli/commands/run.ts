@@ -30,7 +30,8 @@ import { openTerminal, terminalApprover, type TerminalIO } from '../approval-pro
 import type { Mode, PolicyRule } from '../../engine/policy.js';
 import { detectSandbox, type Sandbox } from '../../sandbox/index.js';
 import type { Budgets } from '../../runner/budgets.js';
-import { runProcess } from '../../runner/tools/run.js';
+import { loadChecks, type Check } from '../../checks/config.js';
+import { executeCheck } from '../../checks/execute.js';
 import {
   checkpoint,
   cleanupWorkspace,
@@ -42,7 +43,24 @@ import {
   type Workspace,
 } from '../../engine/workspace.js';
 import { resumePoint } from '../../runner/resume.js';
-type Check = { name: string; argv: string[]; timeoutSec?: number };
+import {
+  approveTests,
+  protectedTests,
+  isProtectedTest,
+  changedTests,
+  protectionState,
+  restoreProtectionState,
+  ProtectionError,
+} from '../../engine/protected-tests.js';
+import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
+import { secretGate, SECRET_GATE_FIX, type SecretGateResult } from '../../engine/secret-gate.js';
+import {
+  workspaceIdentity,
+  verifyWorkspace,
+  type WorkspaceIdentity,
+} from '../../engine/workspace-integrity.js';
+import { loadSetup, executeSetup, type SetupResult } from '../../engine/setup.js';
+import { selfHostConfig, verifySelfHost, type SelfHost } from '../../engine/self-host.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -51,6 +69,10 @@ type Config = {
   policy?: { allowedCommands?: string[][]; rules?: PolicyRule[]; passEnv?: string[] };
   tasksDir?: string;
   syntheticFixture?: boolean;
+  protectedTests?: string[];
+  protectedPaths?: string[];
+  selfHost?: SelfHost;
+  secretGate?: 'required' | 'off';
 };
 export function rootAt(cwd: string): string {
   return realpathSync(git(['rev-parse', '--show-toplevel'], cwd));
@@ -71,7 +93,10 @@ export function commandFailure(command: string, error: unknown): Envelope {
     Object.hasOwn(ERRORS, String(error.code))
       ? (String(error.code) as ErrorCode)
       : 'TUIG_E_CONFIG';
-  const diagnostic = cliError(code);
+  const diagnostic =
+    error instanceof ProtectionError
+      ? { code: error.code, message: error.message, fix: error.fix }
+      : cliError(code);
   return envelope(
     command,
     {},
@@ -95,11 +120,14 @@ export async function runCommand(options: {
   sandbox?: Sandbox | null;
   /** Continue a cancelled or interrupted run from its last checkpoint. */
   resume?: string;
+  signal?: AbortSignal;
 }): Promise<Envelope> {
   let terminal: TerminalIO | null = null;
   try {
     const root = rootAt(options.cwd ?? process.cwd()),
       config = trusted(root);
+    const pin = selfHostConfig(config.selfHost);
+    if (pin) verifySelfHost(root, pin, true);
     if (!['linux', 'darwin'].includes(options.platform ?? process.platform))
       throw adapterError('TUIG_E_PREREQUISITE');
     // auto-edit and auto run commands without asking, so they require a working OS sandbox.
@@ -115,38 +143,32 @@ export async function runCommand(options: {
     // Resuming continues the original task; the interrupted turn is rolled back and re-asked.
     const point = options.resume === undefined ? undefined : resumePoint(root, options.resume);
     let instruction = point ? point.task.instruction : options.instruction;
+    let oracle: Oracle | undefined;
     const taskId = point ? point.task.taskId : (options.taskId ?? null);
-    if (!point && options.taskId) {
-      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.taskId)) throw adapterError('TUIG_E_USAGE');
-      const taskDir = join(resolve(root, config.tasksDir ?? '.tuig/tasks'), options.taskId);
-      const task = JSON.parse(readFileSync(join(taskDir, 'task.json'), 'utf8')) as {
+    if (taskId) {
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(taskId)) throw adapterError('TUIG_E_USAGE');
+      const taskDir = join(resolve(root, config.tasksDir ?? '.tuig/tasks'), taskId);
+      const task = JSON.parse(readFileSync(join(taskDir, 'task.json'), 'utf8')) as Parameters<
+        typeof loadOracle
+      >[2] & {
         id: string;
         oracleReviewed: boolean;
       };
-      if (task.id !== options.taskId || task.oracleReviewed !== true)
+      if (task.id !== taskId || task.oracleReviewed !== true)
         throw adapterError('TUIG_E_ORACLE_REVIEW');
-      instruction = readFileSync(join(taskDir, 'instruction.md'), 'utf8');
+      oracle = loadOracle(root, taskDir, task);
+      if (oracle && !sandbox) throw adapterError('TUIG_E_SANDBOX');
+      if (!point) instruction = readFileSync(join(taskDir, 'instruction.md'), 'utf8');
     }
     if (!instruction?.trim()) throw adapterError('TUIG_E_USAGE');
-    const checkConfig = JSON.parse(readFileSync(join(root, '.tuig/checks.json'), 'utf8')) as {
-      schema_version: number;
-      checks: Check[];
-    };
-    if (
-      checkConfig.schema_version !== 1 ||
-      !Array.isArray(checkConfig.checks) ||
-      !checkConfig.checks.length ||
-      !checkConfig.checks.every(
-        (check) =>
-          typeof check.name === 'string' &&
-          Array.isArray(check.argv) &&
-          check.argv.length > 0 &&
-          check.argv.every((arg) => typeof arg === 'string' && arg.length > 0) &&
-          (check.timeoutSec === undefined ||
-            (Number.isFinite(check.timeoutSec) && check.timeoutSec > 0 && check.timeoutSec <= 60)),
-      )
-    )
-      throw adapterError('TUIG_E_CONFIG');
+    const checkConfig = { checks: loadChecks(root) };
+    const setupCommands = loadSetup(root);
+    const selfPatterns = [
+      ...protectedTests(config.protectedPaths),
+      ...protectedTests(config.protectedTests),
+    ];
+    const testPatterns = [...protectedTests(config.protectedTests), ...selfPatterns];
+    if (!checkConfig.checks.length) throw adapterError('TUIG_E_CONFIG');
     if (
       config.policy?.allowedCommands &&
       (!Array.isArray(config.policy.allowedCommands) ||
@@ -184,14 +206,71 @@ export async function runCommand(options: {
     // Each run works in its own worktree; the human's checkout is never touched.
     const id = randomUUID();
     let workspace: Workspace;
+    const previousStart = point
+      ? readRun(existingRecord(root, point.from)).events.find((e) => e.type === 'run_start')?.data
+      : undefined;
+    const savedProtection = point
+      ? restoreProtectionState(previousStart?.protectionBaseline)
+      : undefined;
+    const savedIdentity = previousStart?.workspaceIdentity as WorkspaceIdentity | undefined;
+    if (point && (!savedProtection?.ignored || !savedIdentity?.gitDir || !savedIdentity.commonDir))
+      throw new ProtectionError(
+        'TUIG_E_WORKSPACE',
+        'Run-start integrity baseline is missing.',
+        'Start a new run with a complete run-start baseline.',
+      );
     if (point) {
       workspace = openWorkspace(root, point.workspace.id, point.workspace.base);
+      verifyWorkspace(workspace, savedIdentity!);
       restoreCheckpoint(workspace, point.checkpoint.ref);
     } else workspace = createWorkspace(root, id);
+    for (const check of checkConfig.checks)
+      check.argv = check.argv.map((arg) =>
+        arg === '{binary-under-test}'
+          ? join(workspace.path, process.platform === 'win32' ? 'bin/tuig.exe' : 'bin/tuig')
+          : arg,
+      );
     const branch = workspace.branch;
+    const passEnv = (config.policy?.passEnv ?? []).filter(
+      (name) => name !== config.models.apiKeyEnv,
+    );
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
     });
+    const identity = savedIdentity ?? workspaceIdentity(workspace);
+    const setupSandbox =
+      setupCommands.length && !point
+        ? (sandbox ?? detectSandbox(options.platform ?? process.platform))
+        : sandbox;
+    const setup: SetupResult = point
+      ? ((previousStart?.setup as SetupResult | undefined) ?? { status: 'pass', commands: [] })
+      : await executeSetup(workspace.path, setupCommands, store, {
+          passEnv,
+          ...(setupSandbox ? { sandbox: setupSandbox } : {}),
+          ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+    if (setup.status !== 'pass') {
+      const state = setup.status === 'cancelled' ? 'CANCELLED' : 'ERROR';
+      const error = {
+        code: 'TUIG_E_PREREQUISITE' as const,
+        message:
+          'Trusted setup ' +
+          (setup.status === 'cancelled' ? 'was cancelled.' : 'failed or timed out.'),
+        fix: 'Inspect the setup tool log, prepare offline dependencies/cache and review trusted setup commands, then start a new run.',
+      };
+      appendEvent(store, 'state_transition', { from: 'SETUP', to: state, reason: error.message });
+      appendEvent(store, 'run_end', { state, reason: error.message });
+      const data = { id, state, branch, base: workspace.base, worktree: workspace.path, setup };
+      writeSummary(store, {
+        ...data,
+        error,
+        ...(pin ? { selfHost: { ...pin, protectedPathsTouched: [] } } : {}),
+      });
+      return envelope('run', data, { status: 'error', error, next_action: error.fix });
+    }
+    verifyWorkspace(workspace, identity);
+    const protectionBaseline = savedProtection ?? protectionState(workspace, testPatterns);
     if (point) {
       // Link both ways before running, so a crash of the resumed run is itself resumable.
       const previous = existingRecord(root, point.from);
@@ -210,17 +289,26 @@ export async function runCommand(options: {
     const agents = existsSync(join(root, 'AGENTS.md'))
       ? readFileSync(join(root, 'AGENTS.md'), 'utf8')
       : '';
-    // Tools see only explicitly configured parent variables, never the model credential.
-    const passEnv = (config.policy?.passEnv ?? []).filter(
-      (name) => name !== config.models.apiKeyEnv,
-    );
+    let taskVerdict: TaskVerdict = { verdict: 'not_evaluated', source: 'hidden_oracle' };
+    let protectionError: ReturnType<typeof cliError> | undefined;
+    let secretResult: SecretGateResult = {
+      enabled: config.secretGate === 'required',
+      status: config.secretGate === 'required' ? 'not_evaluated' : 'disabled',
+      findings: [],
+    };
     const result = await control({
+      ...(options.signal ? { signal: options.signal } : {}),
       root: workspace.path,
       store,
       start: {
         workspace: { id: workspace.id, branch, base: workspace.base },
         mode: config.mode,
         sandbox: sandbox?.kind ?? 'none',
+        secretGate: config.secretGate ?? 'legacy-off',
+        protectionBaseline,
+        setup,
+        workspaceIdentity: identity,
+        ...(pin ? { selfHost: pin, protectedPaths: selfPatterns } : {}),
         task: { taskId, instruction },
         ...(point
           ? {
@@ -231,15 +319,25 @@ export async function runCommand(options: {
                 checkpoint: point.checkpoint,
                 discarded: point.discarded,
                 totals: point.totals,
+                repaired: point.repaired,
               },
             }
           : {}),
       },
-      ...(point ? { resume: { conversation: point.conversation, totals: point.totals } } : {}),
+      ...(point
+        ? {
+            resume: {
+              conversation: point.conversation,
+              totals: point.totals,
+              repaired: point.repaired,
+            },
+          }
+        : {}),
       policy: {
         mode: config.mode,
         rules: config.policy?.rules ?? [],
         passEnv,
+        ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
         ...(sandbox ? { sandbox } : {}),
       },
       ...(approver ? { approver } : {}),
@@ -252,40 +350,157 @@ export async function runCommand(options: {
       limits: config.budgets ?? {},
       allowedCommands:
         config.policy?.allowedCommands ?? checkConfig.checks.map((check) => check.argv),
+      checks: checkConfig.checks,
+      protectedTests: testPatterns,
+      finalize: async (eligible, signal) => {
+        try {
+          verifyWorkspace(workspace, identity);
+          if (eligible && config.secretGate === 'required') {
+            secretResult = await secretGate(workspace, { signal, ...(sandbox ? { sandbox } : {}) });
+            appendEvent(store, 'secret_gate', secretResult);
+            if (secretResult.status === 'infrastructure_error') {
+              protectionError = {
+                code: 'TUIG_E_PREREQUISITE',
+                message: secretResult.message ?? 'The required secret gate could not complete.',
+                fix: secretResult.fix ?? SECRET_GATE_FIX,
+              };
+              return { passed: false, infrastructure: true, reason: 'Secret gate unavailable' };
+            }
+            if (secretResult.status === 'cancelled')
+              return { passed: false, reason: 'Cancellation requested' };
+            if (secretResult.status !== 'pass')
+              return { passed: false, reason: 'Secret gate detected credentials in result files' };
+          }
+          try {
+            if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
+              return { passed: false, reason: 'Protected test changes denied' };
+          } catch (error) {
+            if (!(error instanceof ProtectionError)) throw error;
+            protectionError = { code: error.code, message: error.message, fix: error.fix };
+            return { passed: false, infrastructure: true, reason: error.message };
+          }
+          if (oracle && eligible) {
+            verifyWorkspace(workspace, identity);
+            taskVerdict = await finalOracle(workspace.path, oracle, {
+              passEnv,
+              ...(sandbox ? { sandbox } : {}),
+            });
+            appendEvent(store, 'oracle_result', taskVerdict);
+            if (taskVerdict.verdict === 'infrastructure_error')
+              return {
+                passed: false,
+                infrastructure: true,
+                reason: taskVerdict.code ?? 'TUIG_E_PREREQUISITE',
+              };
+            return {
+              passed: taskVerdict.verdict === 'pass',
+              reason: taskVerdict.verdict === 'pass' ? '' : 'Hidden oracle failed',
+            };
+          }
+          verifyWorkspace(workspace, identity);
+          return { passed: true };
+        } catch (error) {
+          if (!(error instanceof ProtectionError)) throw error;
+          protectionError = { code: error.code, message: error.message, fix: error.fix };
+          appendEvent(store, 'policy_denied', {
+            tool: 'workspace_integrity',
+            code: error.code,
+            reason: error.message,
+            next_action: error.fix,
+          });
+          return { passed: false, infrastructure: true, reason: error.message };
+        }
+      },
       validate: async () => {
         const checks = [];
         for (const check of checkConfig.checks) {
           // The check command is host-owned trusted configuration, not model text.
           const sequence = appendCheckIntent(store, check);
-          const result = await runProcess(
+          const result = await executeCheck(
             workspace.path,
-            check.argv,
-            '.',
-            (check.timeoutSec ?? 10) * 1000,
-            { passEnv, ...(sandbox ? { sandbox } : {}) },
+            check,
+            {
+              passEnv,
+              ...(sandbox ? { sandbox } : {}),
+              ...(oracle ? { hiddenReadPaths: [oracle.sourceDirectory] } : {}),
+            },
+            (output) => {
+              writeArtifact(store, 'tool-logs/check-' + sequence + '.log', output);
+            },
           );
-          writeArtifact(store, 'tool-logs/check-' + sequence + '.log', result.output);
-          checks.push({ name: check.name, passed: result.status === 'ok' });
+          checks.push(result);
         }
         return { checks };
       },
     });
-    writeArtifact(store, 'diff.patch', diffPatch(workspace));
     const summary = readRun(store).summary as Record<string, unknown>;
     const location = { branch, base: workspace.base, worktree: workspace.path };
+    const selfHost = pin
+      ? {
+          ...pin,
+          protectedPathsTouched: [
+            ...new Set(
+              readRun(store)
+                .events.filter((event) => event.type === 'test_tamper')
+                .flatMap((event) => (Array.isArray(event.data.paths) ? event.data.paths : []))
+                .map((path: unknown) =>
+                  typeof path === 'string'
+                    ? path.replaceAll('\\', '/').replace(/^(?:\.\/)+/, '')
+                    : path,
+                )
+                .filter(
+                  (path): path is string =>
+                    typeof path === 'string' && isProtectedTest(path, selfPatterns),
+                ),
+            ),
+          ].sort(),
+        }
+      : undefined;
+    // Preserve pin evidence even if bounded final-diff attribution cannot complete.
+    if (selfHost) writeSummary(store, { ...summary, selfHost });
+    if (!protectionError || protectionError.code !== 'TUIG_E_WORKSPACE') {
+      verifyWorkspace(workspace, identity);
+      if (selfHost) {
+        const finalPaths = changedTests(workspace, testPatterns, protectionBaseline);
+        selfHost.protectedPathsTouched = [
+          ...new Set([
+            ...selfHost.protectedPathsTouched,
+            ...finalPaths.filter((path) => isProtectedTest(path, selfPatterns)),
+          ]),
+        ].sort();
+      }
+      writeArtifact(store, 'diff.patch', diffPatch(workspace));
+    }
     writeSummary(store, {
       ...summary,
       id,
       ...location,
       taskId,
+      taskVerdict,
+      setup,
+      secretGate: secretResult,
+      ...(selfHost ? { selfHost } : {}),
+      ...(protectionError ? { protectionError } : {}),
+      testTamperAttempts: readRun(store)
+        .events.filter((e) => e.type === 'test_tamper')
+        .reduce((n, e) => n + Number(e.data.count), 0),
       ...(point ? { resumedFrom: point.from } : {}),
     });
-    const data = { id, ...location, ...result };
+    const data = {
+      id,
+      ...location,
+      ...result,
+      taskVerdict,
+      setup,
+      secretGate: secretResult,
+      ...(protectionError ? { protectionError } : {}),
+    };
     return result.state === 'SUCCEEDED'
       ? envelope('run', data, { status: 'ok' })
       : envelope('run', data, {
           status: 'error',
-          next_action: 'Inspect ' + CLI_NAME + ' runs show ' + id,
+          ...(protectionError ? { error: protectionError } : {}),
+          next_action: protectionError?.fix ?? 'Inspect ' + CLI_NAME + ' runs show ' + id,
         });
   } catch (error) {
     return commandFailure('run', error);
@@ -302,8 +517,12 @@ export function cleanupRun(id: string, cwd = process.cwd()): Envelope {
   try {
     const root = rootAt(cwd);
     trusted(root);
-    const start = readRun(existingRecord(root, id)).events.find((e) => e.type === 'run_start');
-    const recorded = start?.data.workspace as { id?: unknown; base?: unknown } | undefined;
+    const run = readRun(existingRecord(root, id));
+    const start = run.events.find((e) => e.type === 'run_start');
+    const summary = run.summary as { setup?: SetupResult; base?: string } | null;
+    const recorded = (start?.data.workspace ??
+      (summary?.setup ? { id, base: summary.base } : undefined)) as
+      { id?: unknown; base?: unknown } | undefined;
     if (typeof recorded?.base !== 'string') throw adapterError('TUIG_E_WORKSPACE');
     const workspaceId = typeof recorded.id === 'string' ? recorded.id : id;
     const result = cleanupWorkspace(openWorkspace(root, workspaceId, recorded.base));
