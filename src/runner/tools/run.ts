@@ -26,6 +26,8 @@ export type ProcessOptions = {
   hiddenReadPaths?: string[];
   /** Host-only final validation outputs, never accepted from agent tool arguments. */
   additionalWritablePaths?: string[];
+  /** Host-owned visible checks isolate Python bytecode from writable sources. */
+  pythonCacheIsolation?: boolean;
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -35,7 +37,11 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * through, HOME and TMPDIR point to a fresh temporary directory, Git hooks
  * stay disabled, and only explicitly configured names are added.
  */
-export function minimalEnv(home: string, passEnv: string[] = []): NodeJS.ProcessEnv {
+export function minimalEnv(
+  home: string,
+  passEnv: string[] = [],
+  pythonCacheIsolation = false,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...SAFE_GIT_ENV, HOME: home, TMPDIR: join(home, 'tmp') };
   const names = [
     'PATH',
@@ -45,9 +51,11 @@ export function minimalEnv(home: string, passEnv: string[] = []): NodeJS.Process
   ];
   for (const name of [...names, ...passEnv])
     if (process.env[name] !== undefined) env[name] = process.env[name];
-  // A fresh process-private prefix prevents reading forged workspace bytecode.
-  env.PYTHONPYCACHEPREFIX = join(home, 'pycache');
-  env.PYTHONDONTWRITEBYTECODE = '1';
+  if (pythonCacheIsolation) {
+    // A fresh process-private prefix prevents reading forged workspace bytecode.
+    env.PYTHONPYCACHEPREFIX = join(home, 'pycache');
+    env.PYTHONDONTWRITEBYTECODE = '1';
+  }
   if (process.platform === 'win32') env.TEMP = env.TMP = env.TMPDIR;
   return env;
 }
@@ -98,7 +106,7 @@ export async function runProcess(
       const command = options.sandbox ? sandboxArgv(options.sandbox, spec, argv) : argv;
       const child = spawn(command[0]!, command.slice(1), {
         cwd: dir,
-        env: minimalEnv(home, options.passEnv),
+        env: minimalEnv(home, options.passEnv, options.pythonCacheIsolation),
         detached: true,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],

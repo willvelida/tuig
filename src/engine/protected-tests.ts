@@ -168,8 +168,12 @@ function ignoredHashes(workspace: Workspace, paths: string[]): Record<string, st
   const buffer = Buffer.alloc(64 * 1024);
   for (const path of paths) {
     const file = join(workspace.path, path);
-    if (lstatSync(file).isSymbolicLink()) throw codedError('TUIG_E_WORKSPACE');
-    const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw codedError('TUIG_E_WORKSPACE');
+    const fd = openSync(
+      file,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+    );
     try {
       if (!fstatSync(fd).isFile()) throw codedError('TUIG_E_WORKSPACE');
       const hash = createHash('sha256');

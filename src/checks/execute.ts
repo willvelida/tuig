@@ -77,7 +77,10 @@ export async function executeCheck(
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
-    const result = await runProcess(root, check.argv, '.', check.timeoutSec * 1000, options);
+    const result = await runProcess(root, check.argv, '.', check.timeoutSec * 1000, {
+      ...options,
+      pythonCacheIsolation: true,
+    });
     onOutput?.(result.output);
     let diagnostics: Diagnostic[];
     try {

@@ -8,6 +8,7 @@ import * as protection from '../dist/engine/protected-tests.js';
 import { executeCheck } from '../dist/checks/execute.js';
 import { executeTool } from '../dist/runner/tools/index.js';
 import { createRecord } from '../dist/engine/record.js';
+import { runProcess } from '../dist/runner/tools/run.js';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'tuig-hardening-'));
@@ -74,6 +75,22 @@ test('hardening: ignored dependency tests use the run-start content baseline', (
 
 test('hardening: visible and edit checks ignore forged workspace Python bytecode', async (t) => {
   const f = fixture(t);
+  const ordinary = await runProcess(
+    f.root,
+    [
+      process.execPath,
+      '-e',
+      "console.log(JSON.stringify(Object.keys(process.env).filter(k => ['PYTHONPYCACHEPREFIX','PYTHONDONTWRITEBYTECODE'].includes(k))))",
+    ],
+    '.',
+    10000,
+  );
+  assert.equal(ordinary.status, 'ok');
+  assert.deepEqual(
+    JSON.parse(ordinary.stdout),
+    [],
+    'ordinary tools retain their minimal environment contract',
+  );
   const python = process.platform === 'win32' ? 'python' : 'python3';
   writeFileSync(join(f.root, 'helper.py'), "VALUE = 'source'\n");
   const plant = spawnSync(

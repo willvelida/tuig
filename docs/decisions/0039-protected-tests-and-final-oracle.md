@@ -193,11 +193,12 @@ run_start event carries the baseline through resume chains; resume refuses a
 missing or invalid baseline rather than attributing prior edits to the operator.
 Changed ignore rules are included only when ignored protected content changes.
 
-Every harness subprocess now receives PYTHONPYCACHEPREFIX in its fresh private
+Every visible check subprocess now receives PYTHONPYCACHEPREFIX in its fresh private
 temporary home outside the workspace, and PYTHONDONTWRITEBYTECODE=1. These
 harness-owned settings override passEnv and require no argv rewriting. This
 covers standalone visible checks, run_checks, lint before/after edits and repair
-validation through their shared process runner. A forged timestamp/size-valid
+validation through their shared check executor and a host-only process option.
+Ordinary agent commands retain the existing minimal environment contract. A forged timestamp/size-valid
 workspace pyc remains demonstrably usable by an ordinary Python invocation but
 is never consulted by these checks. Reserved-cache exclusion alone protected the
 oracle snapshot; it did not protect visible execution. Python isolated mode
