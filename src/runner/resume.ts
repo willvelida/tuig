@@ -56,7 +56,8 @@ function history(
   depth = 0,
 ): { conversation: Message[]; totals: Totals; repaired: Record<string, number> } {
   if (depth > 100) throw codedError('TUIG_E_RESUME', 'Resume chain is too long.');
-  const { events } = readRun(existingRecord(root, id));
+  const store = existingRecord(root, id);
+  const { events } = readRun(store);
   const resumed = startOf(events).data.resume as { from: string; turn: number } | undefined;
   const prior = resumed
     ? history(root, resumed.from, resumed.turn, depth + 1)
@@ -93,7 +94,7 @@ function history(
         const name = typeof check === 'string' ? check : check.name;
         repaired.set(name, (repaired.get(name) ?? 0) + 1);
       }
-      conversation.push(repairMessage(failed));
+      conversation.push(repairMessage(failed, store.clean));
     }
   }
   return { conversation, totals, repaired: Object.fromEntries(repaired) };

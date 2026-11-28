@@ -22,20 +22,22 @@ export function lintUnavailable(results: CheckResult[]): boolean {
       result.diagnostics.some((d) => d.message === 'Diagnostic list truncated after 1000 entries.'),
   );
 }
-/** Multiset subtraction: an extra occurrence is a new error, warnings never block. */
+/** Location shifts preserve identity; extra occurrences are new, warnings never block. */
 export function newErrors(before: CheckResult[], after: CheckResult[]): Diagnostic[] {
+  const identity = (d: Diagnostic): string =>
+    JSON.stringify([d.tool, d.file, d.rule, d.severity, d.message]);
   const counts = new Map<string, number>();
   for (const result of before)
     for (const d of result.diagnostics) {
       if (d.severity !== 'error') continue;
-      const key = JSON.stringify(d);
+      const key = identity(d);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   const added: Diagnostic[] = [];
   for (const result of after)
     for (const d of result.diagnostics) {
       if (d.severity !== 'error') continue;
-      const key = JSON.stringify(d),
+      const key = identity(d),
         count = counts.get(key) ?? 0;
       if (count) counts.set(key, count - 1);
       else added.push(d);
