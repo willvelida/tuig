@@ -47,10 +47,16 @@ import {
   approveTests,
   protectedTests,
   protectionState,
+  restoreProtectionState,
   ProtectionError,
 } from '../../engine/protected-tests.js';
 import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
 import { secretGate, SECRET_GATE_FIX, type SecretGateResult } from '../../engine/secret-gate.js';
+import {
+  workspaceIdentity,
+  verifyWorkspace,
+  type WorkspaceIdentity,
+} from '../../engine/workspace-integrity.js';
 type Config = {
   mode: Mode;
   sandbox?: 'auto' | 'off';
@@ -187,11 +193,26 @@ export async function runCommand(options: {
     // Each run works in its own worktree; the human's checkout is never touched.
     const id = randomUUID();
     let workspace: Workspace;
+    const previousStart = point
+      ? readRun(existingRecord(root, point.from)).events.find((e) => e.type === 'run_start')?.data
+      : undefined;
+    const savedProtection = point
+      ? restoreProtectionState(previousStart?.protectionBaseline)
+      : undefined;
+    const savedIdentity = previousStart?.workspaceIdentity as WorkspaceIdentity | undefined;
+    if (point && (!savedProtection?.ignored || !savedIdentity?.gitDir || !savedIdentity.commonDir))
+      throw new ProtectionError(
+        'TUIG_E_WORKSPACE',
+        'Run-start integrity baseline is missing.',
+        'Start a new run with a complete run-start baseline.',
+      );
     if (point) {
       workspace = openWorkspace(root, point.workspace.id, point.workspace.base);
+      verifyWorkspace(workspace, savedIdentity!);
       restoreCheckpoint(workspace, point.checkpoint.ref);
     } else workspace = createWorkspace(root, id);
-    const protectionBaseline = protectionState(workspace);
+    const protectionBaseline = savedProtection ?? protectionState(workspace, testPatterns);
+    const identity = savedIdentity ?? workspaceIdentity(workspace);
     const branch = workspace.branch;
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
@@ -234,6 +255,8 @@ export async function runCommand(options: {
         mode: config.mode,
         sandbox: sandbox?.kind ?? 'none',
         secretGate: config.secretGate ?? 'legacy-off',
+        protectionBaseline,
+        workspaceIdentity: identity,
         task: { taskId, instruction },
         ...(point
           ? {
@@ -278,48 +301,63 @@ export async function runCommand(options: {
       checks: checkConfig.checks,
       protectedTests: testPatterns,
       finalize: async (eligible, signal) => {
-        if (eligible && config.secretGate === 'required') {
-          secretResult = await secretGate(workspace, { signal, ...(sandbox ? { sandbox } : {}) });
-          appendEvent(store, 'secret_gate', secretResult);
-          if (secretResult.status === 'infrastructure_error') {
-            protectionError = {
-              code: 'TUIG_E_PREREQUISITE',
-              message: secretResult.message ?? 'The required secret gate could not complete.',
-              fix: secretResult.fix ?? SECRET_GATE_FIX,
-            };
-            return { passed: false, infrastructure: true, reason: 'Secret gate unavailable' };
-          }
-          if (secretResult.status === 'cancelled')
-            return { passed: false, reason: 'Cancellation requested' };
-          if (secretResult.status !== 'pass')
-            return { passed: false, reason: 'Secret gate detected credentials in result files' };
-        }
         try {
-          if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
-            return { passed: false, reason: 'Protected test changes denied' };
+          verifyWorkspace(workspace, identity);
+          if (eligible && config.secretGate === 'required') {
+            secretResult = await secretGate(workspace, { signal, ...(sandbox ? { sandbox } : {}) });
+            appendEvent(store, 'secret_gate', secretResult);
+            if (secretResult.status === 'infrastructure_error') {
+              protectionError = {
+                code: 'TUIG_E_PREREQUISITE',
+                message: secretResult.message ?? 'The required secret gate could not complete.',
+                fix: secretResult.fix ?? SECRET_GATE_FIX,
+              };
+              return { passed: false, infrastructure: true, reason: 'Secret gate unavailable' };
+            }
+            if (secretResult.status === 'cancelled')
+              return { passed: false, reason: 'Cancellation requested' };
+            if (secretResult.status !== 'pass')
+              return { passed: false, reason: 'Secret gate detected credentials in result files' };
+          }
+          try {
+            if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
+              return { passed: false, reason: 'Protected test changes denied' };
+          } catch (error) {
+            if (!(error instanceof ProtectionError)) throw error;
+            protectionError = { code: error.code, message: error.message, fix: error.fix };
+            return { passed: false, infrastructure: true, reason: error.message };
+          }
+          if (oracle && eligible) {
+            verifyWorkspace(workspace, identity);
+            taskVerdict = await finalOracle(workspace.path, oracle, {
+              passEnv,
+              ...(sandbox ? { sandbox } : {}),
+            });
+            appendEvent(store, 'oracle_result', taskVerdict);
+            if (taskVerdict.verdict === 'infrastructure_error')
+              return {
+                passed: false,
+                infrastructure: true,
+                reason: taskVerdict.code ?? 'TUIG_E_PREREQUISITE',
+              };
+            return {
+              passed: taskVerdict.verdict === 'pass',
+              reason: taskVerdict.verdict === 'pass' ? '' : 'Hidden oracle failed',
+            };
+          }
+          verifyWorkspace(workspace, identity);
+          return { passed: true };
         } catch (error) {
           if (!(error instanceof ProtectionError)) throw error;
           protectionError = { code: error.code, message: error.message, fix: error.fix };
+          appendEvent(store, 'policy_denied', {
+            tool: 'workspace_integrity',
+            code: error.code,
+            reason: error.message,
+            next_action: error.fix,
+          });
           return { passed: false, infrastructure: true, reason: error.message };
         }
-        if (oracle && eligible) {
-          taskVerdict = await finalOracle(workspace.path, oracle, {
-            passEnv,
-            ...(sandbox ? { sandbox } : {}),
-          });
-          appendEvent(store, 'oracle_result', taskVerdict);
-          if (taskVerdict.verdict === 'infrastructure_error')
-            return {
-              passed: false,
-              infrastructure: true,
-              reason: taskVerdict.code ?? 'TUIG_E_PREREQUISITE',
-            };
-          return {
-            passed: taskVerdict.verdict === 'pass',
-            reason: taskVerdict.verdict === 'pass' ? '' : 'Hidden oracle failed',
-          };
-        }
-        return { passed: true };
       },
       validate: async () => {
         const checks = [];
@@ -343,7 +381,10 @@ export async function runCommand(options: {
         return { checks };
       },
     });
-    writeArtifact(store, 'diff.patch', diffPatch(workspace));
+    if (!protectionError || protectionError.code !== 'TUIG_E_WORKSPACE') {
+      verifyWorkspace(workspace, identity);
+      writeArtifact(store, 'diff.patch', diffPatch(workspace));
+    }
     const summary = readRun(store).summary as Record<string, unknown>;
     const location = { branch, base: workspace.base, worktree: workspace.path };
     writeSummary(store, {

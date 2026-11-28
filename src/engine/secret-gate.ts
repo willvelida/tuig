@@ -97,10 +97,11 @@ export async function secretGate(
     // Same private-index snapshot semantics as diff.patch, with the gate's
     // remaining preparation deadline applied to every Git subprocess.
     const env = { ...process.env, GIT_INDEX_FILE: join(reports, 'index') };
-    read(['read-tree', 'HEAD'], MAX_BYTES, env);
+    read(['read-tree', 'refs/heads/' + workspace.branch], MAX_BYTES, env);
     read(['add', '--all', '--', '.'], MAX_BYTES, env);
     const tree = read(['write-tree'], MAX_BYTES, env).trim();
     const blobs = new Map<string, string>();
+    const changedPaths = new Set<string>();
     const files = new Map<string, string>();
     let total = 0;
     const addDiff = (args: string[]): void => {
@@ -109,10 +110,12 @@ export async function secretGate(
       if (fields.length % 2 || fields.length / 2 > MAX_OBJECTS)
         throw new Error('preparation_limit');
       for (let i = 0; i < fields.length; i += 2) {
-        const match = /^:[0-7]{6} [0-7]{6} [a-f0-9]{40,64} ([a-f0-9]{40,64}) [ACMT]$/.exec(
+        const match = /^:[0-7]{6} [0-7]{6} [a-f0-9]{40,64} ([a-f0-9]{40,64}) [ACMTD]$/.exec(
           fields[i]!,
         );
         if (!match || !fields[i + 1]) throw new Error('git');
+        changedPaths.add(fields[i + 1]!);
+        if (fields[i]!.endsWith(' D')) continue;
         if (!blobs.has(match[1]!)) blobs.set(match[1]!, fields[i + 1]!);
         if (blobs.size + files.size > MAX_OBJECTS) throw new Error('preparation_limit');
       }
@@ -144,7 +147,7 @@ export async function secretGate(
       '--no-abbrev',
       '-z',
       '--no-renames',
-      '--diff-filter=ACMT',
+      '--diff-filter=ACMTD',
       workspace.base,
       tree,
     ]);
@@ -153,7 +156,7 @@ export async function secretGate(
     const commits = read([
       'rev-list',
       '--max-count=' + (MAX_COMMITS + 1),
-      workspace.base + '..HEAD',
+      workspace.base + '..refs/heads/' + workspace.branch,
     ])
       .trim()
       .split(/\r?\n/)
@@ -173,7 +176,7 @@ export async function secretGate(
         '--no-abbrev',
         '-z',
         '--no-renames',
-        '--diff-filter=ACMT',
+        '--diff-filter=ACMTD',
         commit,
       ]);
       addText(
@@ -183,6 +186,12 @@ export async function secretGate(
         ),
         'commit/' + commit + '/message',
       );
+    }
+    const pathLabels = new Map<string, string>();
+    for (const path of changedPaths) {
+      const label = 'path/' + randomUUID();
+      pathLabels.set(label, path);
+      addText(path, label);
     }
     for (const [oid, file] of blobs)
       addText(read(['cat-file', 'blob', oid], MAX_SNAPSHOT - total + 1), file);
@@ -224,6 +233,14 @@ export async function secretGate(
     if (!Array.isArray(value) || value.length > 1000) return failure;
     const clean = redactor();
     const findings: SecretGateResult['findings'] = [];
+    const unsafePaths = new Set<string>();
+    for (const item of value as unknown[]) {
+      if (item && typeof item === 'object') {
+        const reported = (item as Record<string, unknown>).File;
+        const label = typeof reported === 'string' ? files.get(basename(reported)) : undefined;
+        if (label && pathLabels.has(label)) unsafePaths.add(pathLabels.get(label)!);
+      }
+    }
     for (const item of value as unknown[]) {
       if (!item || typeof item !== 'object') return failure;
       const data = item as Record<string, unknown>;
@@ -239,7 +256,7 @@ export async function secretGate(
       if (file === undefined) return failure;
       findings.push({
         rule: clean(data.RuleID),
-        file: clean(file),
+        file: unsafePaths.has(file) ? 'path/[REDACTED]' : clean(file),
         line: Number(data.StartLine),
         marker: REDACTED,
       });

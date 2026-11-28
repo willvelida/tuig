@@ -45,6 +45,9 @@ export function minimalEnv(home: string, passEnv: string[] = []): NodeJS.Process
   ];
   for (const name of [...names, ...passEnv])
     if (process.env[name] !== undefined) env[name] = process.env[name];
+  // A fresh process-private prefix prevents reading forged workspace bytecode.
+  env.PYTHONPYCACHEPREFIX = join(home, 'pycache');
+  env.PYTHONDONTWRITEBYTECODE = '1';
   if (process.platform === 'win32') env.TEMP = env.TMP = env.TMPDIR;
   return env;
 }

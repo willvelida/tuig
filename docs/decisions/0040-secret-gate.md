@@ -145,3 +145,25 @@ A separate real-gitleaks run test is mandatory with TUIG_REQUIRE_GITLEAKS=1,
 otherwise skips only when the tool is unavailable. Mutation probes against
 generated build output verify regressions reject removal of blocking checks.
 No CI workflow or frozen fixture is changed.
+
+## Pre-self-hosting hardening
+
+Before the final gates, verify the worktree's canonical Git directory and common
+Git directory against the run-start identity and require symbolic HEAD to name
+the run branch. Pin that identity in run_start and restore it on resume before
+checkpoint restoration. Missing, deleted or repointed Git metadata fails closed
+with TUIG_E_WORKSPACE and remediation. Verify again before the oracle snapshot
+and diff.patch. The integrity module is separate from workspace.ts. Secret
+snapshot initialization and history traversal explicitly name refs/heads/<run
+branch>, rather than trusting HEAD.
+
+Scan changed path strings as private opaque snapshot inputs as well as file
+contents and messages. Rename-disabled diffs include deletion endpoints, both
+in the final result and every newly reachable commit. Every path input counts
+against the existing shared 256-input and 64 MiB bounds. Path findings receive
+opaque path/<uuid> labels. If any path input has a finding, every content finding
+associated with that original path also receives path/[REDACTED], irrespective
+of report order. Safe original paths retain the previous reporting behavior.
+Neither raw scanner match values nor contaminated original filenames leave the
+gate. Paths are scanned individually so scanner line numbers never need to be
+interpreted as filesystem authority.

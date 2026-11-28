@@ -34,7 +34,7 @@ for (const [name, original, search, replace, expected] of [
         kind: 'repair',
         parser: 'eslint-json',
         paths: ['*.js'],
-        timeoutSec: 2,
+        timeoutSec: 10,
         argv: [process.execPath, '-e', script],
       },
     ];

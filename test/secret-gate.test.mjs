@@ -66,7 +66,7 @@ function fixture(t) {
       path: repo,
       base: git(['rev-parse', 'HEAD']),
       id: 'secret',
-      branch: 'secret',
+      branch: git(['symbolic-ref', '--short', 'HEAD']),
     },
   };
 }
@@ -571,3 +571,75 @@ test('real gitleaks blocks a synthetic agent edit through run', { timeout: 60000
   assert.equal(JSON.stringify(result).includes(token), false);
   noSecret(join(f.repo, '.tuig/runs', result.data.id));
 });
+
+for (const committed of [false, true])
+  test(
+    'hardening: filename-only secret is scanned without echoing the path ' + committed,
+    async (t) => {
+      const f = fixture(t);
+      fake(t, f.dir);
+      const path = 'credential-' + token + '.txt';
+      writeFileSync(join(f.repo, path), 'clean content\n');
+      if (committed) {
+        f.git(['add', path]);
+        f.git([
+          '-c',
+          'user.name=T',
+          '-c',
+          'user.email=t@e.invalid',
+          '-c',
+          'commit.gpgsign=false',
+          'commit',
+          '-qm',
+          'add file',
+        ]);
+        f.git(['mv', path, 'safe.txt']);
+        f.git([
+          '-c',
+          'user.name=T',
+          '-c',
+          'user.email=t@e.invalid',
+          '-c',
+          'commit.gpgsign=false',
+          'commit',
+          '-qm',
+          'rename file',
+        ]);
+      }
+      const result = await secretGate(f.workspace);
+      assert.equal(result.status, 'fail', JSON.stringify(result));
+      assert.ok(result.findings.length);
+      assert.equal(JSON.stringify(result).includes(token), false);
+      assert.match(result.findings[0].file, /^path\//);
+    },
+  );
+
+for (const change of ['deleted', 'nonexistent', 'main', 'branch'])
+  test('hardening: run fails closed before gates after Git metadata ' + change, async (t) => {
+    const f = fixture(t);
+    configRun(t, f, null, 'off');
+    const body =
+      change === 'branch'
+        ? "require('node:child_process').execFileSync('git',['-c','core.hooksPath=/dev/null','checkout','--detach']);"
+        : "const fs=require('node:fs');fs.rmSync('.git');" +
+          (change === 'deleted'
+            ? ''
+            : "fs.writeFileSync('.git'," +
+              JSON.stringify(
+                'gitdir: ' + (change === 'main' ? join(f.repo, '.git') : '/nonexistent') + '\n',
+              ) +
+              ');');
+    writeFileSync(
+      join(f.repo, '.tuig/checks.json'),
+      JSON.stringify({
+        schema_version: 1,
+        checks: [{ name: 'tamper', argv: [process.execPath, '-e', body], timeoutSec: 10 }],
+      }),
+    );
+    const result = await run(f);
+    assert.equal(result.data.state, 'ERROR', JSON.stringify(result));
+    assert.equal(result.error.code, 'TUIG_E_WORKSPACE');
+    assert.match(result.next_action, /worktree/);
+    const record = readFileSync(join(f.repo, '.tuig/runs', result.data.id, 'events.jsonl'), 'utf8');
+    assert.match(record, /workspace_integrity/);
+  });

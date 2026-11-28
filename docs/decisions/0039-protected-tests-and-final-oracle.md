@@ -181,3 +181,27 @@ TUIG_E_WORKSPACE. A valid adverse report with pytest exit 2 (collection/import
 failure), as well as exits 0, 1 or 5, is a task failure. Missing/invalid evidence,
 timeouts and launcher failures remain infrastructure outcomes. No resume baseline
 attribution behavior is changed.
+
+## Pre-self-hosting hardening
+
+At run start, pin the ignored protected-file paths and SHA-256 content hashes,
+with the same filtered 1 MiB listing limit and a 64 MiB aggregate content limit.
+Hash through bounded reads and refuse symlinks and non-regular files. Final
+validation gates additions, content changes and deletions relative to that
+baseline; unchanged dependency-installed tests do not require approval. The
+run_start event carries the baseline through resume chains; resume refuses a
+missing or invalid baseline rather than attributing prior edits to the operator.
+Changed ignore rules are included only when ignored protected content changes.
+
+Every harness subprocess now receives PYTHONPYCACHEPREFIX in its fresh private
+temporary home outside the workspace, and PYTHONDONTWRITEBYTECODE=1. These
+harness-owned settings override passEnv and require no argv rewriting. This
+covers standalone visible checks, run_checks, lint before/after edits and repair
+validation through their shared process runner. A forged timestamp/size-valid
+workspace pyc remains demonstrably usable by an ordinary Python invocation but
+is never consulted by these checks. Reserved-cache exclusion alone protected the
+oracle snapshot; it did not protect visible execution. Python isolated mode
+ignores environment configuration, but already ignores PYTHONPATH and uses its
+own startup semantics; trusted checks must not explicitly reset the interpreter's
+cache prefix or load arbitrary bytecode as data. No environment mechanism can
+constrain a trusted command that deliberately overrides it.

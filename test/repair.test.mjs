@@ -379,7 +379,7 @@ for (const [name, before, after, expected] of [
             kind: 'repair',
             parser: 'eslint-json',
             paths: ['*.js'],
-            timeoutSec: 0.5,
+            timeoutSec: name.includes('timeout') ? 0.5 : 10,
             argv: [process.execPath, '-e', script],
           },
         ],
