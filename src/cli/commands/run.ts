@@ -43,7 +43,7 @@ import {
   type Workspace,
 } from '../../engine/workspace.js';
 import { resumePoint } from '../../runner/resume.js';
-import { approveTests, protectedTests } from '../../engine/protected-tests.js';
+import { approveTests, protectedTests, protectionState } from '../../engine/protected-tests.js';
 import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
 type Config = {
   mode: Mode;
@@ -180,6 +180,7 @@ export async function runCommand(options: {
       workspace = openWorkspace(root, point.workspace.id, point.workspace.base);
       restoreCheckpoint(workspace, point.checkpoint.ref);
     } else workspace = createWorkspace(root, id);
+    const protectionBaseline = protectionState(workspace);
     const branch = workspace.branch;
     const store = createRecord(root, id, {
       sensitiveEnv: config.models.apiKeyEnv ? [config.models.apiKeyEnv] : [],
@@ -258,7 +259,7 @@ export async function runCommand(options: {
       checks: checkConfig.checks,
       protectedTests: testPatterns,
       finalize: async (eligible) => {
-        if (!approveTests(workspace, testPatterns, store, approver))
+        if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
           return { passed: false, reason: 'Protected test changes denied' };
         if (oracle && eligible) {
           taskVerdict = await finalOracle(workspace.path, oracle, {

@@ -254,7 +254,7 @@ test(
         '#!' +
           process.execPath +
           '\n' +
-          `const fs=require('fs');const assert=require('assert');assert.notEqual(process.cwd(),${JSON.stringify(f.repo)});assert(!fs.existsSync('.git'));assert(fs.readFileSync('tests-hidden/test_oracle.py').equals(Buffer.from(${JSON.stringify([...f.bytes])})));if(${report})fs.writeFileSync('tests-hidden/result.xml','<testsuite tests="1"><testcase name="oracle"/></testsuite>');process.exit(${exitCode});\n`,
+          `const fs=require('fs');const assert=require('assert');assert.notEqual(process.cwd(),${JSON.stringify(f.repo)});assert(!fs.existsSync('.git'));assert(fs.readFileSync('tests-hidden/test_oracle.py').equals(Buffer.from(${JSON.stringify([...f.bytes])})));if(${report})fs.writeFileSync(process.argv.find(a=>a.startsWith('--junitxml=')).slice('--junitxml='.length),'<testsuite tests="1"><testcase name="oracle"/></testsuite>');process.exit(${exitCode});\n`,
       );
       chmodSync(join(bin, 'python'), 0o755);
       assert.equal((await finalOracle(f.repo, oracle, { sandbox })).verdict, expected);
@@ -372,7 +372,7 @@ test(
           '#!' +
             process.execPath +
             '\n' +
-            `if (${report}) require('fs').writeFileSync('tests-hidden/result.xml','<testsuite tests="1"><testcase name="oracle"/></testsuite>'); process.exit(${code});\n`,
+            `if (${report}) require('fs').writeFileSync(process.argv.find(a=>a.startsWith('--junitxml=')).slice('--junitxml='.length),'<testsuite tests="1"><testcase name="oracle"/></testsuite>'); process.exit(${code});\n`,
         );
         chmodSync(join(bin, 'python'), 0o755);
         const named = await runCommand({ cwd: f.repo, taskId: 'oracle', interactive: false });

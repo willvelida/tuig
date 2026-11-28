@@ -24,6 +24,8 @@ export type ProcessOptions = {
   sandbox?: Sandbox;
   /** Host-only oracle directories denied to agent subprocesses and visible checks. */
   hiddenReadPaths?: string[];
+  /** Host-only final validation outputs, never accepted from agent tool arguments. */
+  additionalWritablePaths?: string[];
 };
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
@@ -74,7 +76,10 @@ export async function runProcess(
         exitCode: number | null = null,
         spawnError: Error | null = null,
         settled = false;
-      const spec = sandboxSpec({ cwd: dir, writable: [workspacePath(root, '.'), home] });
+      const spec = sandboxSpec({
+        cwd: dir,
+        writable: [workspacePath(root, '.'), home, ...(options.additionalWritablePaths ?? [])],
+      });
       const inside = (parent: string, child: string): boolean => {
         const rel = relative(parent, child);
         return (

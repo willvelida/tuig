@@ -53,7 +53,7 @@ function decode(value: string): string {
   });
 }
 /** Small non-validating XML reader: no DTD, external entities, or expansion. */
-function xml(input: string): Element {
+export function xml(input: string): Element {
   const document: Element = { name: '', attrs: {}, children: [], content: '' },
     stack = [document];
   const tokens = /<!--[\s\S]*?-->|<\?xml\s[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<[^>]*>|[^<]+/g;

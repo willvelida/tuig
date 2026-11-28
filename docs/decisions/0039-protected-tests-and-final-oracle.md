@@ -86,3 +86,57 @@ process outcomes. For an opt-in real pytest check, run on a sandbox-capable POSI
 host with Python/pytest installed: `TUIG_REAL_PYTEST=1 node --test
 test/protected-oracle.test.mjs`. No existing benchmark or approved oracle pins
 are changed.
+
+## Review hardening
+
+The final protected-test gate augments the Git snapshot diff with `git ls-files
+-z --others --ignored --exclude-standard`, bounded to 1 MiB and executed through
+the existing hook-disabled Git runner. Every ignored file matching protectedTests
+is gated, including dotfiles and dot directories. Glob matching removes Node's
+special leading-dot exclusion using a same-length private sentinel in both paths
+and literal dot-prefixed pattern components, preserving wildcard character counts.
+The init defaults also cover conftest.py at every depth, pytest.ini, .pytest.ini,
+pyproject.toml, tox.ini and setup.cfg.
+
+When ignored protected files exist, changed applicable .gitignore files also
+appear in the approval and tamper record. The harness pins the worktree's Git
+info/exclude hash before any model turn and records .git/info/exclude if it changes
+while hiding protected files. Ignored protected files are counted even if the
+ignore rule predated the run. Operators should keep check-generated caches out
+of protected directories or disable their creation: an ignored file under a
+protected glob still needs approval.
+
+Oracle snapshot copying and ignored-file gating share the same reserved-directory
+filter: .git, .tuig, .agents and tests-hidden are never copied. Everything else
+that the snapshot copies is included in the gate's view if it matches a protected
+glob, whether tracked, untracked, ignored or dot-prefixed. Tracked changes retain
+the existing base-to-snapshot diff checks, including rename endpoints and modes.
+
+Hidden-oracle JUnit has stricter semantics than visible checks. It must contain at
+least one passed testcase, with no skipped, xfail, xpass, failure or error evidence
+in testcase elements, outcome attributes or suite counters. Declared suite test
+counts must match their actual descendant testcase counts, and outcome counts
+must be valid and within the testcase total. A valid empty or skipped report is
+a task failure; missing, malformed or inconsistent reports remain infrastructure
+errors. The bounded XML reader is exported for reuse; visible JUnit parsing
+behavior is unchanged. Pytest also receives `-o xfail_strict=true`.
+
+Each final validation creates a private random report directory outside the
+copied snapshot and a UUID-named report file inside it. Only the final pytest
+subprocess receives an additional writable sandbox mount for that directory;
+agent tools have no corresponding argument or mount. The old predictable
+tests-hidden/result.xml path is ignored. Both snapshot and report directory are
+removed after final validation, and report reading remains bounded and refuses
+symlinks. Suite/testcase count checks establish internal consistency, not an
+independent measurement of collected tests; no in-process plugin or second
+collection pass is added.
+
+Residual limitations are explicit: pytest's non-strict XPASS from an explicit
+strict=False marker in a human-reviewed, hash-pinned oracle is indistinguishable
+from a passing testcase in JUnit, despite the strict default. Also, tested solution
+code runs inside the pytest process and can discover the report argv or monkeypatch
+pytest and forge evidence. The private random report path prevents predictable
+snapshot-file forgery by an agent tool; it cannot authenticate evidence against
+adversarial code in the same process. Stage 5 may revisit this execution boundary.
+Findings concerning approval on ineligible runs and recorded-event replay remain
+separate follow-ups and are not changed here.

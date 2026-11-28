@@ -8,9 +8,17 @@ const probes = [
   {
     name: 'final diff gate',
     file: 'dist/engine/protected-tests.js',
-    from: 'return result.stdout',
-    to: 'return [];\n    return result.stdout',
+    from: 'const paths = changedTests(workspace, patterns, baseline);',
+    to: 'const paths = [];',
     test: 'final diff gate checks',
+  },
+  {
+    name: 'ignored protected additions',
+    file: 'dist/engine/protected-tests.js',
+    from: 'const protectedIgnored = ignoredPaths.filter((p) => isProtectedTest(p, patterns));',
+    to: 'const protectedIgnored = [];',
+    test: 'review: ignored protected additions',
+    testFile: 'test/oracle-review.test.mjs',
   },
   {
     name: 'verdict write refusal',
@@ -22,6 +30,14 @@ const probes = [
   ...(process.platform === 'win32'
     ? []
     : [
+        {
+          name: 'oracle skip refusal',
+          file: 'dist/engine/oracle.js',
+          from: 'const passed = oracleReportPassed(report);',
+          to: 'const passed = true;',
+          test: 'review fake Python oracle: skipped-only',
+          testFile: 'test/oracle-review.test.mjs',
+        },
         {
           name: 'hidden oracle source masking',
           file: 'dist/runner/tools/run.js',
@@ -38,7 +54,12 @@ for (const probe of probes) {
     writeFileSync(probe.file, original.replace(probe.from, probe.to));
     const result = spawnSync(
       process.execPath,
-      ['--test', '--test-name-pattern', probe.test, 'test/protected-oracle.test.mjs'],
+      [
+        '--test',
+        '--test-name-pattern',
+        probe.test,
+        probe.testFile ?? 'test/protected-oracle.test.mjs',
+      ],
       {
         encoding: 'utf8',
         timeout: 60000,

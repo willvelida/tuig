@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   cpSync,
   closeSync,
@@ -19,7 +19,9 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { codedError } from '../cli/errors.js';
 import { gitOutput, runGit } from './git.js';
 import { runProcess, type ProcessOptions } from '../runner/tools/run.js';
-import { MAX_REPORT_BYTES, parseDiagnostics } from '../checks/parsers.js';
+import { MAX_REPORT_BYTES } from '../checks/parsers.js';
+import { oracleReportPassed } from './oracle-report.js';
+import { oracleSnapshotPath } from './protected-tests.js';
 
 export type Oracle = { bytes: Buffer; sha256: string; timeoutMs: number; sourceDirectory: string };
 export type TaskVerdict = {
@@ -106,13 +108,13 @@ export async function finalOracle(
   if (!options.sandbox)
     return { verdict: 'infrastructure_error', source: 'hidden_oracle', code: 'TUIG_E_SANDBOX' };
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'tuig-oracle-')));
+  const reports = realpathSync(mkdtempSync(join(tmpdir(), 'tuig-oracle-report-')));
+  const reportPath = join(reports, randomUUID() + '.xml');
   try {
     cpSync(worktree, directory, {
       recursive: true,
       filter(source) {
-        const parts = relative(worktree, source).split(sep);
-        if (parts.some((p) => ['.git', '.tuig', '.agents', 'tests-hidden'].includes(p)))
-          return false;
+        if (!oracleSnapshotPath(relative(worktree, source))) return false;
         if (lstatSync(source).isSymbolicLink()) throw codedError('TUIG_E_WORKSPACE');
         return true;
       },
@@ -136,18 +138,22 @@ export async function finalOracle(
         '--noconftest',
         '-o',
         'pythonpath=.',
+        '-o',
+        'xfail_strict=true',
         '-c',
         'tests-hidden/pytest.ini',
-        '--junitxml=tests-hidden/result.xml',
+        '--junitxml=' + reportPath,
         'tests-hidden/test_oracle.py',
       ],
       '.',
       oracle.timeoutMs,
-      options,
+      {
+        ...options,
+        additionalWritablePaths: [...(options.additionalWritablePaths ?? []), reports],
+      },
     );
     // A sandbox launcher can itself exit 1 when Python is missing. A fresh,
     // bounded pytest report distinguishes completed tests from launch failure.
-    const reportPath = join(directory, 'tests-hidden', 'result.xml');
     if (
       !existsSync(reportPath) ||
       !lstatSync(reportPath).isFile() ||
@@ -173,16 +179,13 @@ export async function finalOracle(
     } finally {
       closeSync(fd);
     }
-    const diagnostics = parseDiagnostics('junit', 'hidden_oracle', report);
-    if (!/<testcase(?:\s|>)/.test(report))
-      return {
-        verdict: 'infrastructure_error',
-        source: 'hidden_oracle',
-        code: 'TUIG_E_PREREQUISITE',
-      };
-    if (result.status === 'ok' && result.exitCode === 0 && !diagnostics.length)
+    const passed = oracleReportPassed(report);
+    if (result.status === 'ok' && result.exitCode === 0 && passed)
       return { verdict: 'pass', source: 'hidden_oracle' };
-    if (result.status === 'nonzero_exit' && result.exitCode === 1)
+    if (
+      (result.status === 'nonzero_exit' && result.exitCode === 1) ||
+      (result.status === 'ok' && result.exitCode === 0)
+    )
       return { verdict: 'fail', source: 'hidden_oracle' };
     return {
       verdict: 'infrastructure_error',
@@ -192,6 +195,7 @@ export async function finalOracle(
   } catch {
     return { verdict: 'infrastructure_error', source: 'hidden_oracle', code: 'TUIG_E_WORKSPACE' };
   } finally {
+    rmSync(reports, { recursive: true, force: true });
     rmSync(directory, { recursive: true, force: true });
   }
 }

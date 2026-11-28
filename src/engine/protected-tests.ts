@@ -1,7 +1,8 @@
-import { matchesGlob } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { dirname, matchesGlob, relative } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { codedError } from '../cli/errors.js';
-import { runGit } from './git.js';
+import { gitOutput, runGit } from './git.js';
 import { snapshotTree, type Workspace } from './workspace.js';
 import { appendEvent, type RecordStore } from './record.js';
 import type { Approver } from '../runner/approval.js';
@@ -26,11 +27,42 @@ export function protectedTests(value: unknown): string[] {
 }
 
 export function isProtectedTest(path: string, patterns: string[]): boolean {
-  return patterns.some((pattern) => matchesGlob(path.replaceAll('\\', '/'), pattern));
+  const normalized = path.replaceAll('\\', '/');
+  // Node glob stars exclude leading dots. A same-length private sentinel removes
+  // only that special treatment while preserving wildcard character counts.
+  const dots = (value: string): string => value.replace(/(^|\/)\./g, '$1\uE000');
+  return patterns.some(
+    (pattern) => matchesGlob(normalized, pattern) || matchesGlob(dots(normalized), dots(pattern)),
+  );
+}
+
+/** Reserved directories never copied into the oracle snapshot. */
+export function oracleSnapshotPath(path: string): boolean {
+  return !path.split(/[\\/]/).some((p) => ['.git', '.tuig', '.agents', 'tests-hidden'].includes(p));
+}
+
+export type ProtectionState = { exclude: string; excludeHash: string };
+function excludeHash(file: string): string {
+  if (!existsSync(file)) return 'missing';
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024)
+    throw codedError('TUIG_E_WORKSPACE');
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+export function protectionState(workspace: Workspace): ProtectionState {
+  const exclude = gitOutput(
+    ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'],
+    workspace.path,
+  );
+  return { exclude, excludeHash: excludeHash(exclude) };
 }
 
 /** No rename detection: both the deleted source and added destination are checked. */
-export function changedTests(workspace: Workspace, patterns: string[]): string[] {
+export function changedTests(
+  workspace: Workspace,
+  patterns: string[],
+  baseline?: ProtectionState,
+): string[] {
   const result = runGit(
     [
       'diff',
@@ -45,10 +77,35 @@ export function changedTests(workspace: Workspace, patterns: string[]): string[]
     workspace.path,
   );
   if (result.error || result.status !== 0) throw codedError('TUIG_E_WORKSPACE');
-  return result.stdout
-    .split('\0')
-    .filter((p) => p && isProtectedTest(p, patterns))
-    .sort();
+  const ignored = runGit(
+    ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+    workspace.path,
+    { maxBuffer: 1024 * 1024 },
+  );
+  if (ignored.error || ignored.status !== 0 || (ignored.stdout && !ignored.stdout.endsWith('\0')))
+    throw codedError('TUIG_E_WORKSPACE');
+  const changed = result.stdout.split('\0').filter(Boolean);
+  const ignoredPaths = ignored.stdout.split('\0').filter((p) => p && oracleSnapshotPath(p));
+  const protectedIgnored = ignoredPaths.filter((p) => isProtectedTest(p, patterns));
+  const paths = new Set([
+    ...changed.filter((p) => isProtectedTest(p, patterns)),
+    ...protectedIgnored,
+  ]);
+  if (protectedIgnored.length) {
+    for (const path of [...changed, ...ignoredPaths]) {
+      if (
+        path.split('/').at(-1) === '.gitignore' &&
+        protectedIgnored.some((p) => {
+          const rel = relative(dirname(path), p).replaceAll('\\', '/');
+          return rel !== '..' && !rel.startsWith('../');
+        })
+      )
+        paths.add(path);
+    }
+    if (baseline && excludeHash(baseline.exclude) !== baseline.excludeHash)
+      paths.add('.git/info/exclude');
+  }
+  return [...paths].sort();
 }
 
 export function approveTests(
@@ -56,8 +113,9 @@ export function approveTests(
   patterns: string[],
   store: RecordStore,
   approver?: Approver,
+  baseline?: ProtectionState,
 ): boolean {
-  const paths = changedTests(workspace, patterns);
+  const paths = changedTests(workspace, patterns, baseline);
   if (!paths.length) return true;
   const request = {
     id: randomUUID(),
