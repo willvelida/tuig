@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
 import {
   cpSync,
+  closeSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
+  readSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -15,6 +19,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { codedError } from '../cli/errors.js';
 import { gitOutput, runGit } from './git.js';
 import { runProcess, type ProcessOptions } from '../runner/tools/run.js';
+import { MAX_REPORT_BYTES, parseDiagnostics } from '../checks/parsers.js';
 
 export type Oracle = { bytes: Buffer; sha256: string; timeoutMs: number; sourceDirectory: string };
 export type TaskVerdict = {
@@ -121,13 +126,49 @@ export async function finalOracle(
         'pythonpath=.',
         '-c',
         'tests-hidden/pytest.ini',
+        '--junitxml=tests-hidden/result.xml',
         'tests-hidden/test_oracle.py',
       ],
       '.',
       oracle.timeoutMs,
       options,
     );
-    if (result.status === 'ok' && result.exitCode === 0)
+    // A sandbox launcher can itself exit 1 when Python is missing. A fresh,
+    // bounded pytest report distinguishes completed tests from launch failure.
+    const reportPath = join(directory, 'tests-hidden', 'result.xml');
+    if (
+      !existsSync(reportPath) ||
+      !lstatSync(reportPath).isFile() ||
+      lstatSync(reportPath).isSymbolicLink()
+    )
+      return {
+        verdict: 'infrastructure_error',
+        source: 'hidden_oracle',
+        code: 'TUIG_E_PREREQUISITE',
+      };
+    const fd = openSync(reportPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let report: string;
+    try {
+      const buffer = Buffer.alloc(MAX_REPORT_BYTES + 1);
+      let size = 0;
+      while (size < buffer.length) {
+        const n = readSync(fd, buffer, size, buffer.length - size, null);
+        if (!n) break;
+        size += n;
+      }
+      if (size > MAX_REPORT_BYTES) throw codedError('TUIG_E_PREREQUISITE');
+      report = buffer.subarray(0, size).toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+    const diagnostics = parseDiagnostics('junit', 'hidden_oracle', report);
+    if (!/<testcase(?:\s|>)/.test(report))
+      return {
+        verdict: 'infrastructure_error',
+        source: 'hidden_oracle',
+        code: 'TUIG_E_PREREQUISITE',
+      };
+    if (result.status === 'ok' && result.exitCode === 0 && !diagnostics.length)
       return { verdict: 'pass', source: 'hidden_oracle' };
     if (result.status === 'nonzero_exit' && result.exitCode === 1)
       return { verdict: 'fail', source: 'hidden_oracle' };

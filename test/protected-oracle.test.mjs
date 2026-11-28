@@ -221,18 +221,19 @@ test(
     });
     process.env.PATH = bin + delimiter + old;
     const oracle = loadOracle(f.repo, f.taskDir, f.task);
-    for (const [exitCode, expected] of [
+    for (const [exitCode, expected, report = true] of [
       [0, 'pass'],
       [1, 'fail'],
       [2, 'infrastructure_error'],
       [5, 'infrastructure_error'],
+      [0, 'infrastructure_error', false],
     ]) {
       writeFileSync(
         join(bin, 'python'),
         '#!' +
           process.execPath +
           '\n' +
-          `const fs=require('fs');const assert=require('assert');assert.notEqual(process.cwd(),${JSON.stringify(f.repo)});assert(!fs.existsSync('.git'));assert(fs.readFileSync('tests-hidden/test_oracle.py').equals(Buffer.from(${JSON.stringify([...f.bytes])})));process.exit(${exitCode});\n`,
+          `const fs=require('fs');const assert=require('assert');assert.notEqual(process.cwd(),${JSON.stringify(f.repo)});assert(!fs.existsSync('.git'));assert(fs.readFileSync('tests-hidden/test_oracle.py').equals(Buffer.from(${JSON.stringify([...f.bytes])})));if(${report})fs.writeFileSync('tests-hidden/result.xml','<testsuite tests="1"><testcase name="oracle"/></testsuite>');process.exit(${exitCode});\n`,
       );
       chmodSync(join(bin, 'python'), 0o755);
       assert.equal((await finalOracle(f.repo, oracle, { sandbox })).verdict, expected);
@@ -309,6 +310,66 @@ test(
     );
     assert.deepEqual(summary.taskVerdict, run.data.taskVerdict);
     assert.equal((await replayRun(run.data.id, f.repo)).status, 'ok');
+    if (process.platform !== 'win32' && detectSandbox()) {
+      config.sandbox = 'auto';
+      writeFileSync(configPath, JSON.stringify(config));
+      const task = join(f.repo, '.tuig', 'tasks', 'oracle');
+      mkdirSync(join(task, 'tests-hidden'), { recursive: true });
+      const bytes = Buffer.from('def test_synthetic_oracle(): assert False\n');
+      writeFileSync(join(task, 'tests-hidden', 'test_oracle.py'), bytes);
+      writeFileSync(
+        join(task, 'instruction.md'),
+        'Do nothing; let the host determine the verdict.',
+      );
+      writeFileSync(
+        join(task, 'task.json'),
+        JSON.stringify({
+          id: 'oracle',
+          oracleReviewed: true,
+          oracle: {
+            framework: 'pytest',
+            hidden: 'tests-hidden/test_oracle.py',
+            sha256: { hidden: createHash('sha256').update(bytes).digest('hex') },
+          },
+          timeouts: { hiddenSec: 5 },
+        }),
+      );
+      const bin = mkdtempSync('/var/tmp/tuig-verdict-bin-');
+      const oldPath = process.env.PATH;
+      t.after(() => {
+        process.env.PATH = oldPath;
+        rmSync(bin, { recursive: true, force: true });
+      });
+      process.env.PATH = bin + delimiter + oldPath;
+      for (const [code, report, verdict, state] of [
+        [0, true, 'pass', 'SUCCEEDED'],
+        [1, true, 'fail', 'FAILED_VALIDATION'],
+        [0, false, 'infrastructure_error', 'ERROR'],
+      ]) {
+        writeFileSync(
+          join(bin, 'python'),
+          '#!' +
+            process.execPath +
+            '\n' +
+            `if (${report}) require('fs').writeFileSync('tests-hidden/result.xml','<testsuite tests="1"><testcase name="oracle"/></testsuite>'); process.exit(${code});\n`,
+        );
+        chmodSync(join(bin, 'python'), 0o755);
+        const named = await runCommand({ cwd: f.repo, taskId: 'oracle', interactive: false });
+        assert.equal(named.data.state, state, JSON.stringify(named));
+        assert.equal(named.data.taskVerdict.verdict, verdict);
+        const record = JSON.parse(
+          readFileSync(join(f.repo, '.tuig', 'runs', named.data.id, 'summary.json'), 'utf8'),
+        );
+        assert.equal(record.taskVerdict.verdict, verdict);
+        assert.equal(existsSync(join(named.data.worktree, 'tests-hidden')), false);
+        const events = readFileSync(
+          join(f.repo, '.tuig', 'runs', named.data.id, 'events.jsonl'),
+          'utf8',
+        );
+        assert.ok(!events.includes(bytes.toString()));
+        assert.equal((await replayRun(named.data.id, f.repo)).status, 'ok');
+      }
+    }
   },
 );
 

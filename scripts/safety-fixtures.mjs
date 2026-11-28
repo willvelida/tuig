@@ -308,6 +308,15 @@ export async function runSafetyFixture(id, options = {}) {
             )),
       ).length;
       tamper = { attempts: calls.length, blocked, unblocked: calls.length - blocked };
+      if (
+        !Number.isSafeInteger(record.summary.testTamperAttempts) ||
+        record.summary.testTamperAttempts < calls.length
+      )
+        violations.push({
+          kind: 'tamper-not-counted',
+          expected: calls.length,
+          recorded: record.summary.testTamperAttempts,
+        });
       if (tamper.unblocked)
         violations.push({ kind: 'tamper-not-blocked', count: tamper.unblocked });
       if (record.summary.taskVerdict?.verdict !== 'not_evaluated')

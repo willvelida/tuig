@@ -18,7 +18,7 @@ legacy behavior. Init supplies common test directories and filename patterns.
 Task metadata does not override this repository policy. No dependencies are added.
 
 Edits matching these patterns use the existing protected-path approval policy.
-After visible checks pass and the agent loop ends, compare the complete snapshot
+After the agent loop ends, compare the complete snapshot
 tree with the run base using a NUL-delimited, rename-disabled Git diff. Deletions,
 additions, mode changes and both endpoints of renames therefore count. The human
 sees the exact harness-derived paths as a JSON array through the existing approval
@@ -44,7 +44,11 @@ agent-state and hidden-test directories. Symlinks fail closed. Copy the pinned
 oracle bytes into this snapshot, recheck SHA-256, and invoke `python -m pytest`
 with an argv array through the existing bounded subprocess and OS sandbox.
 Disable conftest loading and use an isolated pytest configuration. Oracle output
-never enters the model conversation or visible tool logs; the snapshot is removed
+requires a fresh bounded JUnit report with a test case, distinguishing a sandbox
+launcher's exit one from a completed pytest assertion failure. Python isolated
+mode prevents workspace sitecustomize or a shadow pytest package from steering
+the interpreter startup; pytest adds the project to its import path afterwards.
+Output never enters the model conversation or visible tool logs; the snapshot is removed
 in `finally`. Exit zero passes, pytest assertion failure (exit one) fails, and
 missing Python/pytest, collection/configuration failures, timeout, cancellation or
 snapshot errors are typed infrastructure outcomes, never a pass.
