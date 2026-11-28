@@ -83,7 +83,7 @@ script. No credential variable is passed to setup/checks. Standalone checks do
 not execute setup.
 
 Every Linux check receives a private /var/tmp tmpfs, never writable host temp.
-Shards create/clean worktree-local TMPDIR/TEMP/TMP with an untyped package boundary
+Confined shards create/clean worktree-local TMPDIR/TEMP/TMP with an untyped package boundary
 for fixture tools (preserving Node's normal syntax detection), and print their named exclusions. The trusted
 --sandboxed flag requires working nested sandbox/gitleaks and removes inherited Git/Python overrides
 only from fixture-test processes, so plain-tool controls work. Every actual
@@ -96,7 +96,8 @@ scripts/self-host-test-policy.mjs:
 - sandbox.test.mjs, `under the sandbox, writing outside the worktree fails; the worktree and temporary home are writable`: its parent-temp probe lands in the outer writable mount inherited by nested bwrap; a fresh host boundary is tested outside confinement.
 
 Both files are still loaded, so every other/new name in them runs. No whole file
-is omitted. Both cases run in full CI and outside-sandbox acceptance below; there
+is omitted. Host-mode shards retain the original host temp environment, so these
+fresh-host controls exercise their original assumptions. Both cases run in full CI and outside-sandbox acceptance below; there
 is no exception outside --sandboxed mode. The two-entry policy cannot silently grow.
 
 An explicit operator can verify the entire phase without an agent/model, in a

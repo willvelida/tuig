@@ -26,23 +26,27 @@ if (arg === '--list') {
   const sandboxed = process.argv[3] === '--sandboxed';
   if (!/^[0-3]$/.test(arg ?? '') || process.argv.length !== (sandboxed ? 4 : 3))
     throw new Error('Use a shard index 0..3 [--sandboxed] or --list');
-  const root = realpathSync(process.cwd()),
-    parent = join(root, '.tuig/temp/test-tmp');
-  mkdirSync(parent, { recursive: true });
-  const rel = relative(root, realpathSync(parent));
-  assert.ok(
-    rel &&
-      !isAbsolute(rel) &&
-      rel !== '..' &&
-      !rel.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')),
-    'Temporary parent must stay inside worktree',
-  );
-  const temp = mkdtempSync(join(parent, arg + '-'));
-  // Match ordinary /tmp: stop inheriting type:module, while retaining Node's
-  // syntax detection for copied ESM .js files and CommonJS extensionless tools.
-  writeFileSync(join(temp, 'package.json'), '{}');
-  const env = { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp };
+  let temp;
+  const env = { ...process.env };
   if (sandboxed) {
+    const root = realpathSync(process.cwd()),
+      parent = join(root, '.tuig/temp/test-tmp');
+    mkdirSync(parent, { recursive: true });
+    const rel = relative(root, realpathSync(parent));
+    assert.ok(
+      rel &&
+        !isAbsolute(rel) &&
+        rel !== '..' &&
+        !rel.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')),
+      'Temporary parent must stay inside worktree',
+    );
+    temp = mkdtempSync(join(parent, arg + '-'));
+    // Match ordinary /tmp: stop inheriting type:module, while retaining Node's
+    // syntax detection for copied ESM .js files and CommonJS extensionless tools.
+    writeFileSync(join(temp, 'package.json'), '{}');
+    env.TMPDIR = temp;
+    env.TMP = temp;
+    env.TEMP = temp;
     env.TUIG_REQUIRE_SANDBOX = '1';
     env.TUIG_REQUIRE_GITLEAKS = '1';
     // The fixture controls deliberately exercise plain Git/Python. Actual harness
@@ -79,6 +83,6 @@ if (arg === '--list') {
     }
     process.exitCode = status;
   } finally {
-    rmSync(temp, { recursive: true, force: true });
+    if (temp) rmSync(temp, { recursive: true, force: true });
   }
 }

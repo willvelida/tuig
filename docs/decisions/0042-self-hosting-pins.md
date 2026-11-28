@@ -69,7 +69,9 @@ skips Git and embeds unknown/dirty/candidate identity, explicitly rejected by
 doctor; normal builds continue to require real Git identity. Main .git remains
 hidden from worktree check sandboxes.
 
-Shards use fresh worktree-local TMPDIR/TEMP/TMP. Linux visible checks also use a
+Confined shards use fresh worktree-local TMPDIR/TEMP/TMP; host acceptance retains
+the host temp environment so fresh-host controls keep their original assumptions.
+Linux visible checks also use a
 private /var/tmp through the existing tmpfs mechanism, selected in non-protected
 runner code. Host /var/tmp remains inaccessible for writes. Exact external PATH
 directories there may be re-exposed read-only for nested fixture tools. The

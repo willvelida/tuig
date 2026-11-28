@@ -20,8 +20,8 @@ const probes = [
   [
     'clean build identity',
     'dist/engine/self-host.js',
-    'identity.dirty !== false || ',
-    '',
+    'identity.dirty !== false',
+    'false',
     'self host doctor',
   ],
   [
