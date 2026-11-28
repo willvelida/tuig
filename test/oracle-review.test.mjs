@@ -134,12 +134,19 @@ const reports = [
   ],
   ['empty-valid', '<testsuite tests="0"/>', 'fail'],
   [
+    'skipped-exit-five',
+    '<testsuite tests="1" skipped="1"><testcase name="s"><skipped/></testcase></testsuite>',
+    'fail',
+    5,
+  ],
+  ['empty-exit-five', '<testsuite tests="0"/>', 'fail', 5],
+  [
     'forged-predictable',
     '<testsuite tests="1"><testcase name="forged"/></testsuite>',
     'infrastructure_error',
   ],
 ];
-for (const [name, report, verdict] of reports)
+for (const [name, report, verdict, exitCode = 0] of reports)
   test(
     'review fake Python oracle: ' + name,
     { skip: process.platform === 'win32', timeout: 15000 },
@@ -170,7 +177,7 @@ for (const [name, report, verdict] of reports)
         '#!' +
           process.execPath +
           '\n' +
-          `const p=${name === 'forged-predictable' ? "'tests-hidden/result.xml'" : "process.argv.find(a=>a.startsWith('--junitxml=')).slice('--junitxml='.length)"};require('fs').writeFileSync(p,${JSON.stringify(report)});process.exit(0);\n`,
+          `const p=${name === 'forged-predictable' ? "'tests-hidden/result.xml'" : "process.argv.find(a=>a.startsWith('--junitxml=')).slice('--junitxml='.length)"};require('fs').writeFileSync(p,${JSON.stringify(report)});process.exit(${exitCode});\n`,
       );
       chmodSync(join(bin, 'python'), 0o755);
       assert.equal((await finalOracle(f.repo, oracle, { sandbox })).verdict, verdict);

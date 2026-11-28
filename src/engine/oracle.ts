@@ -183,7 +183,8 @@ export async function finalOracle(
     if (result.status === 'ok' && result.exitCode === 0 && passed)
       return { verdict: 'pass', source: 'hidden_oracle' };
     if (
-      (result.status === 'nonzero_exit' && result.exitCode === 1) ||
+      (result.status === 'nonzero_exit' &&
+        (result.exitCode === 1 || (result.exitCode === 5 && !passed))) ||
       (result.status === 'ok' && result.exitCode === 0)
     )
       return { verdict: 'fail', source: 'hidden_oracle' };
