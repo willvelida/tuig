@@ -43,7 +43,12 @@ import {
   type Workspace,
 } from '../../engine/workspace.js';
 import { resumePoint } from '../../runner/resume.js';
-import { approveTests, protectedTests, protectionState } from '../../engine/protected-tests.js';
+import {
+  approveTests,
+  protectedTests,
+  protectionState,
+  ProtectionError,
+} from '../../engine/protected-tests.js';
 import { finalOracle, loadOracle, type Oracle, type TaskVerdict } from '../../engine/oracle.js';
 type Config = {
   mode: Mode;
@@ -74,7 +79,10 @@ export function commandFailure(command: string, error: unknown): Envelope {
     Object.hasOwn(ERRORS, String(error.code))
       ? (String(error.code) as ErrorCode)
       : 'TUIG_E_CONFIG';
-  const diagnostic = cliError(code);
+  const diagnostic =
+    error instanceof ProtectionError
+      ? { code: error.code, message: error.message, fix: error.fix }
+      : cliError(code);
   return envelope(
     command,
     {},
@@ -208,6 +216,7 @@ export async function runCommand(options: {
       (name) => name !== config.models.apiKeyEnv,
     );
     let taskVerdict: TaskVerdict = { verdict: 'not_evaluated', source: 'hidden_oracle' };
+    let protectionError: ReturnType<typeof cliError> | undefined;
     const result = await control({
       root: workspace.path,
       store,
@@ -259,8 +268,14 @@ export async function runCommand(options: {
       checks: checkConfig.checks,
       protectedTests: testPatterns,
       finalize: async (eligible) => {
-        if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
-          return { passed: false, reason: 'Protected test changes denied' };
+        try {
+          if (!approveTests(workspace, testPatterns, store, approver, protectionBaseline))
+            return { passed: false, reason: 'Protected test changes denied' };
+        } catch (error) {
+          if (!(error instanceof ProtectionError)) throw error;
+          protectionError = { code: error.code, message: error.message, fix: error.fix };
+          return { passed: false, infrastructure: true, reason: error.message };
+        }
         if (oracle && eligible) {
           taskVerdict = await finalOracle(workspace.path, oracle, {
             passEnv,
@@ -311,17 +326,25 @@ export async function runCommand(options: {
       ...location,
       taskId,
       taskVerdict,
+      ...(protectionError ? { protectionError } : {}),
       testTamperAttempts: readRun(store)
         .events.filter((e) => e.type === 'test_tamper')
         .reduce((n, e) => n + Number(e.data.count), 0),
       ...(point ? { resumedFrom: point.from } : {}),
     });
-    const data = { id, ...location, ...result, taskVerdict };
+    const data = {
+      id,
+      ...location,
+      ...result,
+      taskVerdict,
+      ...(protectionError ? { protectionError } : {}),
+    };
     return result.state === 'SUCCEEDED'
       ? envelope('run', data, { status: 'ok' })
       : envelope('run', data, {
           status: 'error',
-          next_action: 'Inspect ' + CLI_NAME + ' runs show ' + id,
+          ...(protectionError ? { error: protectionError } : {}),
+          next_action: protectionError?.fix ?? 'Inspect ' + CLI_NAME + ' runs show ' + id,
         });
   } catch (error) {
     return commandFailure('run', error);

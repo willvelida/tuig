@@ -174,9 +174,13 @@ export async function replayRun(id: string, cwd = process.cwd()): Promise<Envelo
       },
       finalize: async (eligible) => {
         while (
-          ['approval_requested', 'approval_decided', 'test_tamper', 'oracle_result'].includes(
-            next()?.type ?? '',
-          )
+          [
+            'approval_requested',
+            'approval_decided',
+            'test_tamper',
+            'oracle_result',
+            'policy_denied',
+          ].includes(next()?.type ?? '')
         ) {
           const event = next()!;
           appendEvent(store, event.type, event.data);

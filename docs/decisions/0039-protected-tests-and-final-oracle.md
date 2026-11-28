@@ -53,7 +53,7 @@ mode prevents workspace sitecustomize or a shadow pytest package from steering
 the interpreter startup; pytest adds the project to its import path afterwards.
 Output never enters the model conversation or visible tool logs; the snapshot is removed
 in `finally`. Exit zero passes, pytest assertion failure (exit one) fails, and
-missing Python/pytest, collection/configuration failures, timeout, cancellation or
+missing Python/pytest, missing/invalid reports, timeout, cancellation or
 snapshot errors are typed infrastructure outcomes, never a pass.
 
 The harness records a separate `taskVerdict` object with source `hidden_oracle` in
@@ -140,3 +140,44 @@ snapshot-file forgery by an agent tool; it cannot authenticate evidence against
 adversarial code in the same process. Stage 5 may revisit this execution boundary.
 Findings concerning approval on ineligible runs and recorded-event replay remain
 separate follow-ups and are not changed here.
+
+## Final review corrections
+
+An empty protectedTests list bypasses the gate's Git work entirely. Otherwise
+ignored-file enumeration passes each validated pattern to Git as a `:(glob)`
+pathspec, plus exclusions for the snapshot's reserved paths, before the existing
+dot-aware post-filter. The 1 MiB bound therefore applies to filtered candidates,
+not unrelated ignored dependency trees. A genuine filtered-list overflow fails
+closed with TUIG_E_WORKSPACE, a specific message and next_action, a recorded
+policy_denied infrastructure event, and the same diagnostic in the run summary
+and CLI error envelope. Offline replay consumes that recorded final-gate event.
+
+The supported protectedTests subset is repository-relative forward-slash literal
+components, `*` within a component, and whole-component `**`. Brace expansion,
+extglobs, character classes, `?`, embedded double-stars, empty/dot components,
+absolute paths and traversal are refused. Unsupported patterns raise TUIG_E_CONFIG
+with the offending pattern and instructions to expand it into separate supported
+patterns. Restricting the new, unmerged configuration avoids Node/Git matching
+differences silently omitting ignored protected files; `?` and character classes
+also have differing Unicode byte/character behavior. All init patterns are tested
+through both Git filtering and the post-filter, including dot paths and conftest
+at arbitrary depths.
+
+Python `__pycache__` and `.pytest_cache` directories, and files ending in `.pyc`,
+are reserved regardless of Git ignore state. They are neither gated nor copied
+into the oracle snapshot. No other ignored file type is exempted; ignored
+conftest.py and tests still require approval. This supersedes the earlier cache
+operator warning: ordinary visible pytest caches no longer cause false tamper
+denials, and stale bytecode cannot enter final oracle execution. Environment
+behavior is otherwise unchanged; exclusion is enforced even if a check writes
+caches explicitly.
+
+Oracle tests now validate the complete required argv and exercise final pinned
+bytes mutated after load. Mutation probes independently remove -I, --noconftest,
+xfail_strict and the final SHA-256 recheck and require regression assertions to
+fail. A final hash mismatch preserves TUIG_E_ORACLE_REVIEW. Missing, malformed or
+inconsistent reports use TUIG_E_PREREQUISITE; snapshot/filesystem failures use
+TUIG_E_WORKSPACE. A valid adverse report with pytest exit 2 (collection/import
+failure), as well as exits 0, 1 or 5, is a task failure. Missing/invalid evidence,
+timeouts and launcher failures remain infrastructure outcomes. No resume baseline
+attribution behavior is changed.

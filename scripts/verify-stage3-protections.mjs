@@ -8,8 +8,8 @@ const probes = [
   {
     name: 'final diff gate',
     file: 'dist/engine/protected-tests.js',
-    from: 'const paths = changedTests(workspace, patterns, baseline);',
-    to: 'const paths = [];',
+    from: 'paths = changedTests(workspace, patterns, baseline);',
+    to: 'paths = [];',
     test: 'final diff gate checks',
   },
   {
@@ -33,11 +33,27 @@ const probes = [
         {
           name: 'oracle skip refusal',
           file: 'dist/engine/oracle.js',
-          from: 'const passed = oracleReportPassed(report);',
-          to: 'const passed = true;',
+          from: 'passed = oracleReportPassed(report);',
+          to: 'passed = true;',
           test: 'review fake Python oracle: skipped-only',
           testFile: 'test/oracle-review.test.mjs',
         },
+        {
+          name: 'oracle final hash recheck',
+          file: 'dist/engine/oracle.js',
+          from: "if (createHash('sha256').update(readFileSync(hidden)).digest('hex') !== oracle.sha256)",
+          to: 'if (false)',
+          test: 'round2 fake Python: final pinned hash',
+          testFile: 'test/oracle-final-review.test.mjs',
+        },
+        ...['-I', '--noconftest', 'xfail_strict=true'].map((flag) => ({
+          name: 'oracle required flag ' + flag,
+          file: 'dist/engine/oracle.js',
+          from: "'" + flag + "',",
+          to: '',
+          test: 'round2 fake Python: flags and excluded caches',
+          testFile: 'test/oracle-final-review.test.mjs',
+        })),
         {
           name: 'hidden oracle source masking',
           file: 'dist/runner/tools/run.js',

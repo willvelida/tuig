@@ -179,12 +179,17 @@ export async function finalOracle(
     } finally {
       closeSync(fd);
     }
-    const passed = oracleReportPassed(report);
+    let passed: boolean;
+    try {
+      passed = oracleReportPassed(report);
+    } catch {
+      throw codedError('TUIG_E_PREREQUISITE');
+    }
     if (result.status === 'ok' && result.exitCode === 0 && passed)
       return { verdict: 'pass', source: 'hidden_oracle' };
     if (
       (result.status === 'nonzero_exit' &&
-        (result.exitCode === 1 || (result.exitCode === 5 && !passed))) ||
+        (result.exitCode === 1 || ([2, 5].includes(result.exitCode ?? -1) && !passed))) ||
       (result.status === 'ok' && result.exitCode === 0)
     )
       return { verdict: 'fail', source: 'hidden_oracle' };
@@ -193,8 +198,16 @@ export async function finalOracle(
       source: 'hidden_oracle',
       code: 'TUIG_E_PREREQUISITE',
     };
-  } catch {
-    return { verdict: 'infrastructure_error', source: 'hidden_oracle', code: 'TUIG_E_WORKSPACE' };
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    return {
+      verdict: 'infrastructure_error',
+      source: 'hidden_oracle',
+      code:
+        code === 'TUIG_E_ORACLE_REVIEW' || code === 'TUIG_E_PREREQUISITE'
+          ? code
+          : 'TUIG_E_WORKSPACE',
+    };
   } finally {
     rmSync(reports, { recursive: true, force: true });
     rmSync(directory, { recursive: true, force: true });

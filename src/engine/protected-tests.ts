@@ -7,6 +7,27 @@ import { snapshotTree, type Workspace } from './workspace.js';
 import { appendEvent, type RecordStore } from './record.js';
 import type { Approver } from '../runner/approval.js';
 
+export class ProtectionError extends Error {
+  readonly next_action: string;
+  constructor(
+    readonly code: 'TUIG_E_CONFIG' | 'TUIG_E_WORKSPACE',
+    message: string,
+    readonly fix: string,
+  ) {
+    super(message);
+    this.name = 'ProtectionError';
+    this.next_action = fix;
+  }
+}
+const RESERVED = ['.git', '.tuig', '.agents', 'tests-hidden', '__pycache__', '.pytest_cache'];
+function pythonCache(path: string): boolean {
+  const parts = path.split(/[\\/]/);
+  return (
+    parts.some((p) => p === '__pycache__' || p === '.pytest_cache') ||
+    (parts.at(-1) ?? '').endsWith('.pyc')
+  );
+}
+
 export function protectedTests(value: unknown): string[] {
   if (value === undefined) return [];
   if (
@@ -23,10 +44,28 @@ export function protectedTests(value: unknown): string[] {
     )
   )
     throw codedError('TUIG_E_CONFIG');
+  for (const pattern of value as string[]) {
+    if (
+      /[?{}\[\]()!]/.test(pattern) ||
+      pattern
+        .split('/')
+        .some((part) => !part || part === '.' || (part.includes('**') && part !== '**'))
+    )
+      throw new ProtectionError(
+        'TUIG_E_CONFIG',
+        'Unsupported protectedTests pattern ' +
+          JSON.stringify(pattern) +
+          '. Use literals, * and whole ** path components.',
+        'Expand ' +
+          JSON.stringify(pattern) +
+          ' into separate literal or * / ** patterns in protectedTests, then retry.',
+      );
+  }
   return [...value] as string[];
 }
 
 export function isProtectedTest(path: string, patterns: string[]): boolean {
+  if (pythonCache(path)) return false;
   const normalized = path.replaceAll('\\', '/');
   // Node glob stars exclude leading dots. A same-length private sentinel removes
   // only that special treatment while preserving wildcard character counts.
@@ -38,7 +77,7 @@ export function isProtectedTest(path: string, patterns: string[]): boolean {
 
 /** Reserved directories never copied into the oracle snapshot. */
 export function oracleSnapshotPath(path: string): boolean {
-  return !path.split(/[\\/]/).some((p) => ['.git', '.tuig', '.agents', 'tests-hidden'].includes(p));
+  return !pythonCache(path) && !path.split(/[\\/]/).some((p) => RESERVED.includes(p));
 }
 
 export type ProtectionState = { exclude: string; excludeHash: string };
@@ -63,6 +102,7 @@ export function changedTests(
   patterns: string[],
   baseline?: ProtectionState,
 ): string[] {
+  if (!patterns.length) return [];
   const result = runGit(
     [
       'diff',
@@ -78,12 +118,32 @@ export function changedTests(
   );
   if (result.error || result.status !== 0) throw codedError('TUIG_E_WORKSPACE');
   const ignored = runGit(
-    ['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+    [
+      'ls-files',
+      '-z',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '--',
+      ...patterns.map((pattern) => ':(glob)' + pattern),
+      ...RESERVED.map((directory) => ':(exclude,glob)**/' + directory + '/**'),
+      ':(exclude,glob)**/*.pyc',
+    ],
     workspace.path,
     { maxBuffer: 1024 * 1024 },
   );
-  if (ignored.error || ignored.status !== 0 || (ignored.stdout && !ignored.stdout.endsWith('\0')))
-    throw codedError('TUIG_E_WORKSPACE');
+  if (ignored.error || ignored.status !== 0 || (ignored.stdout && !ignored.stdout.endsWith('\0'))) {
+    const overflow = (ignored.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS';
+    throw new ProtectionError(
+      'TUIG_E_WORKSPACE',
+      overflow
+        ? 'The filtered protected test list exceeded its 1 MiB limit.'
+        : 'The filtered protected test list could not be read completely.',
+      overflow
+        ? 'Narrow protectedTests or remove unwanted protected files, then retry.'
+        : 'Check Git availability and expand protectedTests into supported glob patterns, then retry.',
+    );
+  }
   const changed = result.stdout.split('\0').filter(Boolean);
   const ignoredPaths = ignored.stdout.split('\0').filter((p) => p && oracleSnapshotPath(p));
   const protectedIgnored = ignoredPaths.filter((p) => isProtectedTest(p, patterns));
@@ -115,7 +175,21 @@ export function approveTests(
   approver?: Approver,
   baseline?: ProtectionState,
 ): boolean {
-  const paths = changedTests(workspace, patterns, baseline);
+  let paths: string[];
+  try {
+    paths = changedTests(workspace, patterns, baseline);
+  } catch (error) {
+    if (error instanceof ProtectionError)
+      appendEvent(store, 'policy_denied', {
+        tool: 'protected_tests',
+        rule: 'protected-tests-list',
+        category: 'infrastructure',
+        code: error.code,
+        reason: error.message,
+        next_action: error.fix,
+      });
+    throw error;
+  }
   if (!paths.length) return true;
   const request = {
     id: randomUUID(),
